@@ -1,42 +1,219 @@
 <Window x:Class="AetherRGB.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="AetherRGB" Height="560" Width="820" Background="#121212">
-    <Grid Margin="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+        Title="AetherRGB" MinWidth="1180" MinHeight="720"
+        Width="1500" Height="880"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,12">
-            <TextBlock Text="AetherRGB" FontSize="24" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
-            <TextBlock x:Name="StatusText" Text="" Margin="16,0,0,0" Foreground="#9CA3AF" VerticalAlignment="Center" />
-        </StackPanel>
+        <!-- ===================== Sidebar (immer offen) ===================== -->
+        <Border Grid.Column="0" Background="{StaticResource BrushSidebar}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Margin="20,24,20,24">
+                    <TextBlock Text="AetherRGB" FontSize="20" FontWeight="Bold" Foreground="White" />
+                    <TextBlock x:Name="SidebarStatusText" Text="Nicht verbunden" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap" />
+                </StackPanel>
 
-        <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,12">
-            <Button x:Name="ConnectButton" Content="Geräte neu suchen" Padding="10,6" Margin="0,0,8,0" Click="OnConnectClick" />
-            <Button x:Name="LayoutButton" Content="Layout bearbeiten" Padding="10,6" Margin="0,0,8,0" Click="OnLayoutClick" />
-            <Button x:Name="MsiTestButton" Content="MSI-HID-Test (B550)" Padding="10,6" Margin="0,0,8,0" Click="OnMsiTestClick" />
-            <Button x:Name="RepairButton" Content="Reparieren" Padding="10,6" Margin="0,0,8,0" Click="OnRepairClick" />
-            <Button x:Name="UpdateButton" Content="Nach Updates suchen" Padding="10,6" Margin="0,0,8,0" Click="OnCheckUpdateClick" />
-            <ComboBox x:Name="EffectCombo" Width="180" Margin="24,0,8,0" SelectionChanged="OnEffectChanged" />
-            <Button x:Name="EffectStartButton" Content="Effekt starten" Padding="10,6" Margin="0,0,8,0" Click="OnEffectStartClick" />
-            <Button x:Name="EffectStopButton" Content="Effekt stoppen" Padding="10,6" Click="OnEffectStopClick" />
-        </StackPanel>
+                <StackPanel DockPanel.Dock="Top">
+                    <Button x:Name="NavDevicesButton" Style="{StaticResource NavButton}" Tag="Active" Click="OnNavClick">
+                        <TextBlock Text="🖥  Geräte" />
+                    </Button>
+                    <Button x:Name="NavEffectsButton" Style="{StaticResource NavButton}" Click="OnNavClick">
+                        <TextBlock Text="🎨  Effekte &amp; Layout" />
+                    </Button>
+                    <Button x:Name="NavSettingsButton" Style="{StaticResource NavButton}" Click="OnNavClick">
+                        <TextBlock Text="⚙  Einstellungen" />
+                    </Button>
+                </StackPanel>
 
-        <ListView x:Name="DeviceList" Grid.Row="2" Background="#1E1E1E" Foreground="White" BorderThickness="0">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="Gerät" Width="260" DisplayMemberBinding="{Binding Name}" />
-                    <GridViewColumn Header="Hersteller" Width="180" DisplayMemberBinding="{Binding Vendor}" />
-                    <GridViewColumn Header="Zonen/LEDs" Width="140" DisplayMemberBinding="{Binding ZoneSummary}" />
-                    <GridViewColumn Header="Status" Width="120" DisplayMemberBinding="{Binding StatusText}" />
-                </GridView>
-            </ListView.View>
-        </ListView>
+                <StackPanel DockPanel.Dock="Bottom" Margin="20,0,20,20">
+                    <Button x:Name="RepairButton" Content="Reparieren" Margin="0,0,0,8" Click="OnRepairClick" />
+                    <Button x:Name="UpdateButton" Content="Nach Updates suchen" Click="OnCheckUpdateClick" />
+                </StackPanel>
 
-        <TextBlock x:Name="LogText" Grid.Row="3" Margin="0,12,0,0" Foreground="#6B7280" TextWrapping="Wrap" MaxHeight="90" />
+                <Grid />
+            </DockPanel>
+        </Border>
+
+        <!-- ===================== Hauptbereich ===================== -->
+        <Grid Grid.Column="1" Background="{StaticResource BrushBackground}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- ---- Seite: Geräte ---- -->
+            <Grid x:Name="PageDevices" Grid.Row="0" Margin="32,28,32,16">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                    <TextBlock Text="Geräte" Style="{StaticResource SectionTitle}" Margin="0" VerticalAlignment="Center" />
+                    <TextBlock x:Name="StatusText" Text="" Margin="16,0,0,0" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,16">
+                    <Button x:Name="ConnectButton" Content="Geräte neu suchen" Style="{StaticResource PrimaryButton}" Margin="0,0,10,0" Click="OnConnectClick" />
+                </StackPanel>
+
+                <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0">
+                    <ListView x:Name="DeviceList" BorderThickness="0" Background="Transparent">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Gerät" Width="340" DisplayMemberBinding="{Binding Name}" />
+                                <GridViewColumn Header="Hersteller" Width="200" DisplayMemberBinding="{Binding Vendor}" />
+                                <GridViewColumn Header="Zonen/LEDs" Width="220" DisplayMemberBinding="{Binding ZoneSummary}" />
+                                <GridViewColumn Header="Status" Width="140" DisplayMemberBinding="{Binding StatusText}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Border>
+            </Grid>
+
+            <!-- ---- Seite: Effekte & Layout ---- -->
+            <Grid x:Name="PageEffects" Grid.Row="0" Margin="32,28,32,16" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Effekte &amp; Layout" Style="{StaticResource SectionTitle}" />
+
+                <Border Grid.Row="1" Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Effekt" Style="{StaticResource MutedText}" Margin="0,0,0,6" />
+                        <StackPanel Orientation="Horizontal">
+                            <ComboBox x:Name="EffectCombo" Width="260" Margin="0,0,10,0" SelectionChanged="OnEffectChanged" />
+                            <Button x:Name="EffectStartButton" Content="Effekt starten" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0" Click="OnEffectStartClick" />
+                            <Button x:Name="EffectStopButton" Content="Effekt stoppen" Click="OnEffectStopClick" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Row="2" Style="{StaticResource Card}" VerticalAlignment="Top">
+                    <StackPanel>
+                        <TextBlock Text="2D-Layout (SignalRGB-Stil)" Style="{StaticResource MutedText}" Margin="0,0,0,6" />
+                        <TextBlock Text="Geräte als Rechtecke auf einer virtuellen Fläche anordnen, drehen und skalieren — genau wie sie im PC-Gehäuse von oben liegen. Effekte laufen über die ganze Fläche; die LEDs jedes Geräts nehmen die Farbe an ihrer Position."
+                                   Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,14" />
+                        <Button x:Name="LayoutButton" Content="Layout bearbeiten" HorizontalAlignment="Left" Click="OnLayoutClick" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- ---- Seite: Einstellungen ---- -->
+            <Grid x:Name="PageSettings" Grid.Row="0" Margin="32,28,32,16" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock Grid.Row="0" Text="Einstellungen" Style="{StaticResource SectionTitle}" />
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+
+                        <!-- OpenRGB -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <CheckBox x:Name="OpenRgbEnabledCheck" Content="OpenRGB-Server" FontWeight="SemiBold" />
+                                <TextBlock Text="Für ASUS Aura, ASRock Polychrome, Gigabyte RGB Fusion, MSI Mystic Light u.v.m. — erfordert einen laufenden OpenRGB-Server." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="120" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="OpenRgbHostBox" Grid.Column="0" Margin="0,0,8,0" />
+                                    <TextBox x:Name="OpenRgbPortBox" Grid.Column="1" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- MSI Mystic Light direkt -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <CheckBox x:Name="MsiEnabledCheck" Content="MSI Mystic Light — direkt per USB/HID (ohne OpenRGB)" FontWeight="SemiBold" />
+                                <TextBlock Text="Experimentell, erstmals am MSI MPG B550 Gaming Plus getestet. Nach dem Aktivieren erscheint das Board bei 'Geräte neu suchen'. Vor echten Effekten zuerst den sicheren Einzel-Test unten durchführen."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <TextBlock Text="LED-Anzahl (Sammelzone):" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="MsiLedCountBox" Width="80" />
+                                </StackPanel>
+                                <Button x:Name="MsiTestButton" Content="MSI-HID-Test (Einzel-LED, sicher)" HorizontalAlignment="Left" Click="OnMsiTestClick" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- WLED -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="WLED-Instanzen" FontWeight="SemiBold" Margin="0,0,0,2" />
+                                <TextBlock Text="Lokale ESP32/ESP8266-WLED-Controller per IP-Adresse oder Hostname, direkt im Heimnetz — keine Cloud." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <ListView x:Name="WledList" Height="110" Margin="0,0,0,10">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Name" Width="200" DisplayMemberBinding="{Binding Name}" />
+                                            <GridViewColumn Header="Host/IP" Width="220" DisplayMemberBinding="{Binding Host}" />
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="WledNameBox" Grid.Column="0" Margin="0,0,8,0" Tag="Name (z.B. Schreibtisch)" />
+                                    <TextBox x:Name="WledHostBox" Grid.Column="1" Margin="0,0,8,0" Tag="IP/Host" />
+                                    <Button x:Name="WledAddButton" Grid.Column="2" Content="Hinzufügen" Margin="0,0,8,0" Click="OnWledAddClick" />
+                                    <Button x:Name="WledRemoveButton" Grid.Column="3" Content="Entfernen" Click="OnWledRemoveClick" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Home Assistant -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <CheckBox x:Name="HaEnabledCheck" Content="Home Assistant" FontWeight="SemiBold" />
+                                <TextBlock Text="Steuert/liest HA-Lichter über die lokale REST-API deiner Home-Assistant-Instanz — keine Cloud-Anbindung." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <TextBlock Text="Basis-URL" Style="{StaticResource MutedText}" Margin="0,0,0,4" />
+                                <TextBox x:Name="HaUrlBox" Margin="0,0,0,10" />
+                                <TextBlock Text="Long-Lived Access Token" Style="{StaticResource MutedText}" Margin="0,0,0,4" />
+                                <PasswordBox x:Name="HaTokenBox" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Lokale API -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <CheckBox x:Name="LocalApiEnabledCheck" Content="Lokale offene API" FontWeight="SemiBold" />
+                                <TextBlock Text="Nur für Anwendungen auf diesem PC (127.0.0.1) — keine Serverkommunikation nach außen." Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Port:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="LocalApiPortBox" Width="100" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Button x:Name="SettingsSaveButton" Content="Speichern &amp; Geräte neu verbinden" Style="{StaticResource PrimaryButton}"
+                                HorizontalAlignment="Left" Padding="20,10" Click="OnSettingsSaveClick" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <!-- ---- Log-Leiste unten, immer sichtbar ---- -->
+            <Border Grid.Row="1" Background="{StaticResource BrushPanel}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,1,0,0" Padding="20,10">
+                <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="LogText" Style="{StaticResource MutedText}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
     </Grid>
 </Window>
