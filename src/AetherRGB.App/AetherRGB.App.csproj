@@ -18,6 +18,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- UseWindowsForms bringt automatisch globale Usings für System.Windows.Forms/System.Drawing
+         mit (für den Tray-Icon/NotifyIcon) — die kollidieren mit WPF-Typen gleichen Namens
+         (Application, Point, Brush, MouseEventArgs) in den bestehenden Dateien. Die expliziten
+         Aliase (Forms./Drawing.) in MainWindow.xaml.cs funktionieren weiterhin ohne die globalen Usings. -->
+    <Using Remove="System.Drawing" />
+    <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AetherRGB.Core\AetherRGB.Core.csproj" />
     <ProjectReference Include="..\AetherRGB.Providers.OpenRGB\AetherRGB.Providers.OpenRGB.csproj" />
     <ProjectReference Include="..\AetherRGB.Providers.Wled\AetherRGB.Providers.Wled.csproj" />
