@@ -46,7 +46,7 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <!-- ---- Seite: Geräte ---- -->
+            <!-- ==== Seite: Geräte ==== -->
             <Grid x:Name="PageDevices" Grid.Row="0" Margin="32,28,32,16">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -77,7 +77,7 @@
                 </Border>
             </Grid>
 
-            <!-- ---- Seite: Effekte & Layout ---- -->
+            <!-- ==== Seite: Effekte und Layout ==== -->
             <Grid x:Name="PageEffects" Grid.Row="0" Margin="32,28,32,16" Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -108,7 +108,7 @@
                 </Border>
             </Grid>
 
-            <!-- ---- Seite: Einstellungen ---- -->
+            <!-- ==== Seite: Einstellungen ==== -->
             <Grid x:Name="PageSettings" Grid.Row="0" Margin="32,28,32,16" Visibility="Collapsed">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -208,7 +208,7 @@
                 </ScrollViewer>
             </Grid>
 
-            <!-- ---- Log-Leiste unten, immer sichtbar ---- -->
+            <!-- ==== Log-Leiste unten, immer sichtbar ==== -->
             <Border Grid.Row="1" Background="{StaticResource BrushPanel}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,1,0,0" Padding="20,10">
                 <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto">
                     <TextBlock x:Name="LogText" Style="{StaticResource MutedText}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
