@@ -29,12 +29,23 @@ public sealed class LocalApiConfig
     public int Port { get; set; } = 34533;
 }
 
+/// <summary>Direkter USB/HID-Treiber für MSI Mystic Light, als Alternative/Ergänzung zum
+/// OpenRGB-Provider — standardmäßig AUS, da das Protokoll für das jeweilige Board noch nicht
+/// verifiziert ist (siehe AetherRGB.Providers.MsiMysticLight). Erst nach erfolgreichem
+/// Einzel-LED-Test über die UI aktivieren.</summary>
+public sealed class MsiMysticLightConfig
+{
+    public bool Enabled { get; set; } = false;
+    public int LedCountOverride { get; set; } = 1;
+}
+
 public sealed class AppConfig
 {
     public OpenRgbConfig OpenRgb { get; set; } = new();
     public List<WledInstanceConfig> WledInstances { get; set; } = new();
     public HomeAssistantConfig HomeAssistant { get; set; } = new();
     public LocalApiConfig LocalApi { get; set; } = new();
+    public MsiMysticLightConfig MsiMysticLight { get; set; } = new();
     public bool CheckForUpdatesOnStartup { get; set; } = true;
 
     private static readonly JsonSerializerOptions JsonOptions = new()

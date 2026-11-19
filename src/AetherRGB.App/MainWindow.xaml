@@ -17,6 +17,8 @@
 
         <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,12">
             <Button x:Name="ConnectButton" Content="Geräte neu suchen" Padding="10,6" Margin="0,0,8,0" Click="OnConnectClick" />
+            <Button x:Name="LayoutButton" Content="Layout bearbeiten" Padding="10,6" Margin="0,0,8,0" Click="OnLayoutClick" />
+            <Button x:Name="MsiTestButton" Content="MSI-HID-Test (B550)" Padding="10,6" Margin="0,0,8,0" Click="OnMsiTestClick" />
             <Button x:Name="RepairButton" Content="Reparieren" Padding="10,6" Margin="0,0,8,0" Click="OnRepairClick" />
             <Button x:Name="UpdateButton" Content="Nach Updates suchen" Padding="10,6" Margin="0,0,8,0" Click="OnCheckUpdateClick" />
             <ComboBox x:Name="EffectCombo" Width="180" Margin="24,0,8,0" SelectionChanged="OnEffectChanged" />

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AetherRGB.Providers.MsiMysticLight</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AetherRGB.Core\AetherRGB.Core.csproj" />
+    <!-- Reine .NET-Implementierung des HID-Transports (kein natives hidapi.dll nötig) —
+         funktioniert auf jedem Windows-Build-Runner ohne Zusatz-DLL im Installer. -->
+    <PackageReference Include="HidSharp" Version="2.1.0" />
+  </ItemGroup>
+
+</Project>
