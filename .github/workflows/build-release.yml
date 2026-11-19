@@ -1,0 +1,108 @@
+name: Build AetherRGB (Windows)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Version aus csproj lesen
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$csproj = Get-Content src/AetherRGB.App/AetherRGB.App.csproj
+          $version = $csproj.Project.PropertyGroup.Version | Select-Object -First 1
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Restore
+        run: dotnet restore AetherRGB.sln
+
+      - name: Build
+        run: dotnet build AetherRGB.sln -c Release --no-restore
+
+      - name: Publish portable (Single-File, self-contained)
+        run: >
+          dotnet publish src/AetherRGB.App/AetherRGB.App.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o publish/portable
+
+      - name: Publish für Installer (self-contained, mehrere Dateien)
+        run: >
+          dotnet publish src/AetherRGB.App/AetherRGB.App.csproj -c Release -r win-x64
+          --self-contained true
+          -o publish/installer
+
+      - name: Signing-Zertifikat aus Secret laden
+        id: cert
+        shell: pwsh
+        run: |
+          if ("${{ secrets.AETHERRGB_PFX_BASE64 }}" -ne "") {
+            $bytes = [System.Convert]::FromBase64String("${{ secrets.AETHERRGB_PFX_BASE64 }}")
+            [System.IO.File]::WriteAllBytes("$env:RUNNER_TEMP\aetherrgb.pfx", $bytes)
+            echo "has_cert=true" >> $env:GITHUB_OUTPUT
+          } else {
+            echo "has_cert=false" >> $env:GITHUB_OUTPUT
+            Write-Host "Kein Signing-Zertifikat hinterlegt (AETHERRGB_PFX_BASE64) — Build bleibt unsigniert."
+          }
+
+      - name: Portable EXE signieren
+        if: steps.cert.outputs.has_cert == 'true'
+        shell: pwsh
+        run: |
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          & $signtool sign /f "$env:RUNNER_TEMP\aetherrgb.pfx" /p "${{ secrets.AETHERRGB_PFX_PASSWORD }}" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "publish\portable\AetherRGB.exe"
+          & $signtool sign /f "$env:RUNNER_TEMP\aetherrgb.pfx" /p "${{ secrets.AETHERRGB_PFX_PASSWORD }}" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "publish\installer\AetherRGB.exe"
+
+      - name: Portable EXE umbenennen
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "publish\portable\AetherRGB.exe" "dist\AetherRGB-Portable-x64.exe"
+
+      - name: Inno Setup installieren
+        run: choco install innosetup -y --no-progress
+
+      - name: Installer bauen
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion="${{ steps.version.outputs.version }}" installer\setup.iss
+
+      - name: Installer signieren
+        if: steps.cert.outputs.has_cert == 'true'
+        shell: pwsh
+        run: |
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object { $_.FullName -match "x64" } | Select-Object -First 1).FullName
+          & $signtool sign /f "$env:RUNNER_TEMP\aetherrgb.pfx" /p "${{ secrets.AETHERRGB_PFX_PASSWORD }}" /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 "dist\AetherRGB-Setup-x64.exe"
+
+      - name: Artefakte hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherRGB-${{ steps.version.outputs.version }}
+          path: |
+            dist\AetherRGB-Setup-x64.exe
+            dist\AetherRGB-Portable-x64.exe
+
+      - name: GitHub Release erstellen
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "AetherRGB v${{ steps.version.outputs.version }}"
+          files: |
+            dist/AetherRGB-Setup-x64.exe
+            dist/AetherRGB-Portable-x64.exe
+          generate_release_notes: true

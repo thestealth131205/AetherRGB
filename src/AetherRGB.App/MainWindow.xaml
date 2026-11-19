@@ -1,0 +1,40 @@
+<Window x:Class="AetherRGB.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AetherRGB" Height="560" Width="820" Background="#121212">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="AetherRGB" FontSize="24" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
+            <TextBlock x:Name="StatusText" Text="" Margin="16,0,0,0" Foreground="#9CA3AF" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Grid.Row="1" Margin="0,0,0,12">
+            <Button x:Name="ConnectButton" Content="Geräte neu suchen" Padding="10,6" Margin="0,0,8,0" Click="OnConnectClick" />
+            <Button x:Name="RepairButton" Content="Reparieren" Padding="10,6" Margin="0,0,8,0" Click="OnRepairClick" />
+            <Button x:Name="UpdateButton" Content="Nach Updates suchen" Padding="10,6" Margin="0,0,8,0" Click="OnCheckUpdateClick" />
+            <ComboBox x:Name="EffectCombo" Width="180" Margin="24,0,8,0" SelectionChanged="OnEffectChanged" />
+            <Button x:Name="EffectStartButton" Content="Effekt starten" Padding="10,6" Margin="0,0,8,0" Click="OnEffectStartClick" />
+            <Button x:Name="EffectStopButton" Content="Effekt stoppen" Padding="10,6" Click="OnEffectStopClick" />
+        </StackPanel>
+
+        <ListView x:Name="DeviceList" Grid.Row="2" Background="#1E1E1E" Foreground="White" BorderThickness="0">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Gerät" Width="260" DisplayMemberBinding="{Binding Name}" />
+                    <GridViewColumn Header="Hersteller" Width="180" DisplayMemberBinding="{Binding Vendor}" />
+                    <GridViewColumn Header="Zonen/LEDs" Width="140" DisplayMemberBinding="{Binding ZoneSummary}" />
+                    <GridViewColumn Header="Status" Width="120" DisplayMemberBinding="{Binding StatusText}" />
+                </GridView>
+            </ListView.View>
+        </ListView>
+
+        <TextBlock x:Name="LogText" Grid.Row="3" Margin="0,12,0,0" Foreground="#6B7280" TextWrapping="Wrap" MaxHeight="90" />
+    </Grid>
+</Window>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AetherRGB.App</RootNamespace>
+    <AssemblyName>AetherRGB</AssemblyName>
+    <Version>0.1.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.1.0.0</FileVersion>
+    <Product>AetherRGB</Product>
+    <Company>thestealth131205</Company>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AetherRGB.Core\AetherRGB.Core.csproj" />
+    <ProjectReference Include="..\AetherRGB.Providers.OpenRGB\AetherRGB.Providers.OpenRGB.csproj" />
+    <ProjectReference Include="..\AetherRGB.Providers.Wled\AetherRGB.Providers.Wled.csproj" />
+    <ProjectReference Include="..\AetherRGB.Providers.HomeAssistant\AetherRGB.Providers.HomeAssistant.csproj" />
+    <ProjectReference Include="..\AetherRGB.Api\AetherRGB.Api.csproj" />
+  </ItemGroup>
+
+</Project>
