@@ -3,6 +3,7 @@ using AetherRGB.Core.Effects;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 namespace AetherRGB.Api;
 
