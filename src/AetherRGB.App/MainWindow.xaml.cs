@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using Drawing = System.Drawing;
+using Forms = System.Windows.Forms;
 using AetherRGB.Api;
 using AetherRGB.Core.Config;
 using AetherRGB.Core.Devices;
@@ -33,6 +35,8 @@ public partial class MainWindow : Window
     private readonly RepairService _repair = new();
     private readonly UpdateChecker _updateChecker = new();
     private readonly List<WledRow> _wledRows = new();
+    private Forms.NotifyIcon? _trayIcon;
+    private bool _isExiting;
 
     public MainWindow()
     {
@@ -46,8 +50,82 @@ public partial class MainWindow : Window
         EffectCombo.SelectedIndex = 2;
 
         LoadSettingsIntoUi();
-        BuildProviders();
-        Loaded += async (_, _) => await ConnectAndRefreshAsync();
+        InitializeTrayIcon();
+        Closing += OnWindowClosing;
+
+        try
+        {
+            BuildProviders();
+        }
+        catch (Exception ex)
+        {
+            // Ein fehlerhafter Provider (z. B. nicht erreichbares OpenRGB/HA, falsch konfigurierter
+            // Port) darf die ganze App nicht mit in den Abgrund reißen — lieber sichtbar loggen und
+            // mit den übrigen, funktionierenden Providern weiterlaufen.
+            Log("Fehler beim Aufbau der Geräte-Provider: " + ex.Message);
+        }
+
+        Loaded += async (_, _) =>
+        {
+            try { await ConnectAndRefreshAsync(); }
+            catch (Exception ex) { Log("Fehler beim Verbinden/Suchen von Geräten: " + ex.Message); }
+        };
+    }
+
+    // ===================== Taskleiste / System-Tray =====================
+
+    private void InitializeTrayIcon()
+    {
+        try
+        {
+            var menu = new Forms.ContextMenuStrip();
+            menu.Items.Add("Öffnen", null, (_, _) => RestoreFromTray());
+            menu.Items.Add(new Forms.ToolStripSeparator());
+            menu.Items.Add("Beenden", null, (_, _) => ExitFromTray());
+
+            _trayIcon = new Forms.NotifyIcon
+            {
+                Icon = Drawing.SystemIcons.Application,
+                Text = "AetherRGB",
+                Visible = false,
+                ContextMenuStrip = menu
+            };
+            _trayIcon.DoubleClick += (_, _) => RestoreFromTray();
+        }
+        catch (Exception ex)
+        {
+            Log("Tray-Symbol konnte nicht erstellt werden: " + ex.Message);
+        }
+    }
+
+    private void RestoreFromTray()
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+        if (_trayIcon is not null) _trayIcon.Visible = false;
+    }
+
+    private void ExitFromTray()
+    {
+        _isExiting = true;
+        if (_trayIcon is not null)
+        {
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+        }
+        Close();
+    }
+
+    private void OnWindowClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_isExiting) return;
+
+        // Schließen minimiert nur noch in die Taskleiste bei der Uhr, statt die App zu beenden —
+        // "Beenden" im Tray-Menü ist der einzige echte Exit-Weg.
+        e.Cancel = true;
+        Hide();
+        if (_trayIcon is not null) _trayIcon.Visible = true;
     }
 
     // ===================== Seiten-Navigation (immer offene Sidebar) =====================
