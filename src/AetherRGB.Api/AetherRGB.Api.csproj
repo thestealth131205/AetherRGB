@@ -1,5 +1,8 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk">
 
+  <!-- Bewusst Microsoft.NET.Sdk statt Microsoft.NET.Sdk.Web: dies ist eine Klasssenbibliothek
+       (LocalApiHost wird von AetherRGB.App gehostet), kein eigenständig startbares Webprojekt.
+       Microsoft.NET.Sdk.Web erwartet einen Einstiegspunkt (Main) und schlägt hier fehl. -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -8,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\AetherRGB.Core\AetherRGB.Core.csproj" />
   </ItemGroup>
 
