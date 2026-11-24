@@ -36,6 +36,14 @@ internal sealed class MysticLightSdkNative
         [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] out string[] styles);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate int GetLedNameFn(
+        [MarshalAs(UnmanagedType.BStr)] string deviceType,
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] out string[] ledNames);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate int GetLedStyleFn([MarshalAs(UnmanagedType.BStr)] string deviceType, uint index, [MarshalAs(UnmanagedType.BStr)] out string style);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int SetLedColorFn([MarshalAs(UnmanagedType.BStr)] string deviceType, uint index, uint r, uint g, uint b);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -46,6 +54,8 @@ internal sealed class MysticLightSdkNative
     public required GetErrorMessageFn GetErrorMessage { get; init; }
     public required GetDeviceInfoFn GetDeviceInfo { get; init; }
     public required GetLedInfoFn GetLedInfo { get; init; }
+    public required GetLedNameFn GetLedName { get; init; }
+    public required GetLedStyleFn GetLedStyle { get; init; }
     public required SetLedColorFn SetLedColor { get; init; }
     public required SetLedStyleFn SetLedStyle { get; init; }
     public required string LoadedFrom { get; init; }
@@ -134,6 +144,8 @@ internal sealed class MysticLightSdkNative
                     GetErrorMessage = Get<GetErrorMessageFn>(handle, "MLAPI_GetErrorMessage"),
                     GetDeviceInfo = Get<GetDeviceInfoFn>(handle, "MLAPI_GetDeviceInfo"),
                     GetLedInfo = Get<GetLedInfoFn>(handle, "MLAPI_GetLedInfo"),
+                    GetLedName = Get<GetLedNameFn>(handle, "MLAPI_GetLedName"),
+                    GetLedStyle = Get<GetLedStyleFn>(handle, "MLAPI_GetLedStyle"),
                     SetLedColor = Get<SetLedColorFn>(handle, "MLAPI_SetLedColor"),
                     SetLedStyle = Get<SetLedStyleFn>(handle, "MLAPI_SetLedStyle"),
                     LoadedFrom = path

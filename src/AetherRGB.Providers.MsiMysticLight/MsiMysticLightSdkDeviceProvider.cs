@@ -36,15 +36,28 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
     private readonly ConcurrentDictionary<(string Type, int Index), RgbColor> _pending = new();
     private readonly Dictionary<(string Type, int Index), RgbColor> _lastSent = new();
     private readonly HashSet<(string Type, int Index)> _failedAreas = new();
+    private readonly ConcurrentDictionary<(string Type, int Index), string> _colorStyle = new();
     private readonly AutoResetEvent _wake = new(false);
     private Thread? _worker;
     private volatile bool _stopping;
     private readonly object _sdkLock = new();
+    private int _connecting;
 
     public Task ConnectAsync(CancellationToken ct = default)
     {
-        // MLAPI_Initialize kann einige Sekunden blockieren, während der Dienst antwortet.
-        return Task.Run(Connect, ct);
+        // MLAPI_Initialize/GetDeviceInfo können lange blockieren, während der Dienst antwortet.
+        return Task.Run(() =>
+        {
+            // Nie zwei Anmeldungen gleichzeitig: ein zweiter Initialize/Release-Zyklus würde die
+            // laufende Sitzung beim Dienst abmelden.
+            if (Interlocked.Exchange(ref _connecting, 1) == 1)
+            {
+                Log?.Invoke(LogLevel.Debug, "Mystic Light SDK: Verbindungsversuch läuft bereits, überspringe.");
+                return;
+            }
+            try { Connect(); }
+            finally { Volatile.Write(ref _connecting, 0); }
+        }, ct);
     }
 
     private void Connect()
@@ -79,7 +92,8 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
             Log?.Invoke(LogLevel.Error, $"Mystic Light SDK: MLAPI_GetDeviceInfo fehlgeschlagen — {_sdk.Describe(rc)}. " +
                         (rc == MLAPI_TIMEOUT
                             ? $"Der MSI-Dienst hat in {DeviceInfoTimeout.TotalSeconds:0} s keine Geräteliste geliefert. " +
-                              "Prüfen: MSI Center einmal öffnen und Mystic Light anzeigen lassen; Dienst LEDKeeper2 neu starten; " +
+                              (MsiBoardDetector.IsElevated() ? "" : "Wahrscheinlichste Ursache: AetherRGB läuft ohne Administratorrechte — als Administrator starten. ") +
+                              "Sonst prüfen: MSI Center einmal öffnen und Mystic Light anzeigen lassen; Dienst LEDKeeper2 neu starten; " +
                               "in Mystic Light die Steuerung durch Drittanbieter-Software erlauben; andere RGB-Software (SignalRGB, OpenRGB) beenden."
                             : ""));
             lock (_sdkLock) _sdk.Release();
@@ -102,19 +116,37 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
                     {
                         styles ??= Array.Empty<string>();
                         if (!string.IsNullOrWhiteSpace(name)) names[i] = name;
-                        // Nur im Modus "Steady" übernimmt das SDK gesetzte Farben 1:1 statt sie zu animieren.
-                        bool steady = styles.Contains("Steady", StringComparer.OrdinalIgnoreCase);
-                        int styleRc = steady ? _sdk.SetLedStyle(type, (uint)i, "Steady") : MysticLightSdkNative.MLAPI_OK;
-                        Log?.Invoke(steady && styleRc != MysticLightSdkNative.MLAPI_OK ? LogLevel.Warning : LogLevel.Debug,
-                            $"Mystic Light SDK: {type} #{i} „{names[i]}“, Stile: {string.Join("/", styles)}" +
-                            (!steady ? " — kein „Steady“-Stil, Farben werden evtl. animiert"
-                                : styleRc != MysticLightSdkNative.MLAPI_OK ? $" — Stil „Steady“ setzen fehlgeschlagen: {_sdk.Describe(styleRc)}" : ""));
+                        _sdk.GetLedStyle(type, (uint)i, out var current);
+                        // SetLedColor gilt nur in Stilen mit wählbarer Farbe — in "Rainbow" & Co.
+                        // meldet das SDK MLAPI_NOT_SUPPORTED (-103). Daher einen statischen Stil setzen.
+                        var style = PickStaticStyle(styles);
+                        string result;
+                        if (style is null) result = " — kein statischer Stil bekannt, Farben werden evtl. abgelehnt";
+                        else
+                        {
+                            _colorStyle[(type, i)] = style;
+                            int styleRc = _sdk.SetLedStyle(type, (uint)i, style);
+                            result = styleRc == MysticLightSdkNative.MLAPI_OK
+                                ? $" — Stil „{style}“ gesetzt"
+                                : $" — Stil „{style}“ setzen fehlgeschlagen: {_sdk.Describe(styleRc)}";
+                        }
+                        Log?.Invoke(result.Contains("fehlgeschlagen") || style is null ? LogLevel.Warning : LogLevel.Debug,
+                            $"Mystic Light SDK: {type} #{i} „{names[i]}“, bisheriger Stil: „{current}“, Stile: {string.Join("/", styles)}{result}");
                     }
                     else
                     {
                         Log?.Invoke(LogLevel.Warning, $"Mystic Light SDK: MLAPI_GetLedInfo({type}, {i}) fehlgeschlagen — {_sdk.Describe(infoRc)}");
                     }
                 }
+            }
+            // Nur Diagnose: Namen der Einzel-LEDs, die "Direct Lighting Control" (MLAPI_SetLedColors)
+            // bräuchte — zeigt, ob Pro-LED-Steuerung über das SDK auf diesem Board möglich wäre.
+            lock (_sdkLock)
+            {
+                int nameRc = _sdk.GetLedName(type, out var ledNames);
+                Log?.Invoke(LogLevel.Debug, nameRc == MysticLightSdkNative.MLAPI_OK
+                    ? $"Mystic Light SDK: {type} MLAPI_GetLedName: {ledNames?.Length ?? 0} Name(n): {string.Join(", ", (ledNames ?? Array.Empty<string>()).Take(64))}"
+                    : $"Mystic Light SDK: {type} MLAPI_GetLedName fehlgeschlagen — {_sdk.Describe(nameRc)}");
             }
             _devices.Add(new SdkDevice(type, names));
         }
@@ -129,6 +161,15 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
     }
 
     private const int MLAPI_TIMEOUT = -2;
+    private const int MLAPI_NOT_SUPPORTED = -103;
+
+    /// <summary>Stile, in denen das SDK eine per SetLedColor gesetzte Farbe unverändert zeigt.
+    /// Ältere Boards nennen ihn "Steady", neuere (z. B. B550) "NoAnimation".</summary>
+    private static readonly string[] StaticStyles = { "Steady", "NoAnimation", "Static" };
+
+    private static string? PickStaticStyle(string[] styles) =>
+        StaticStyles.Select(s => styles.FirstOrDefault(x => string.Equals(x, s, StringComparison.OrdinalIgnoreCase)))
+                    .FirstOrDefault(x => x is not null);
     private static readonly TimeSpan DeviceInfoTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>MLAPI_Initialize meldet schon OK, während LEDKeeper2 die Geräte noch einliest —
@@ -139,12 +180,18 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
     {
         var started = DateTime.UtcNow;
         bool reinitialized = false, logged = false;
+        int attempt = 0;
         while (true)
         {
+            var callStarted = DateTime.UtcNow;
             lock (_sdkLock) rc = _sdk!.GetDeviceInfo(out types, out ledCounts);
+            attempt++;
             if (rc == MysticLightSdkNative.MLAPI_OK) return true;
 
             var elapsed = DateTime.UtcNow - started;
+            // Die DLL blockiert selbst oft viele Sekunden, bevor sie Timeout meldet — Dauer mitloggen.
+            Log?.Invoke(LogLevel.Debug, $"Mystic Light SDK: MLAPI_GetDeviceInfo Versuch {attempt}: {_sdk.Describe(rc)} " +
+                                        $"nach {(DateTime.UtcNow - callStarted).TotalSeconds:0.0} s");
             if (rc != MLAPI_TIMEOUT || elapsed >= DeviceInfoTimeout || _stopping) return false;
 
             if (!logged)
@@ -218,6 +265,10 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
                 {
                     if (_sdk is null || !IsConnected) return;
                     rc = _sdk.SetLedColor(key.Type, (uint)key.Index, color.R, color.G, color.B);
+                    // MSI Center (oder der Nutzer dort) kann den Stil zwischendurch zurückgestellt haben.
+                    if (rc == MLAPI_NOT_SUPPORTED && _colorStyle.TryGetValue(key, out var style)
+                        && _sdk.SetLedStyle(key.Type, (uint)key.Index, style) == MysticLightSdkNative.MLAPI_OK)
+                        rc = _sdk.SetLedColor(key.Type, (uint)key.Index, color.R, color.G, color.B);
                 }
                 if (rc == MysticLightSdkNative.MLAPI_OK) _lastSent[key] = color;
                 else if (_failedAreas.Add(key))

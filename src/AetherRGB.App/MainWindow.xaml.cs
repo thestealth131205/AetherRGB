@@ -90,6 +90,13 @@ public partial class MainWindow : Window
             {
                 bool msiChanged = AskMsiBackendIfNeeded();
                 if (_isExiting) return; // Neustart als Administrator läuft bereits.
+                // SDK gewählt, aber ohne Adminrechte gestartet (z. B. über das Startmenü) — dann
+                // liefert LEDKeeper2 keine Geräte (MLAPI_GetDeviceInfo → Timeout). Bei jedem Start anbieten.
+                if (!msiChanged && _config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk && !MsiBoardDetector.IsElevated())
+                {
+                    Log("Mystic Light SDK gewählt, aber AetherRGB läuft ohne Administratorrechte — das SDK liefert so keine Geräte.", LogLevel.Warning);
+                    if (OfferElevatedRestart()) return;
+                }
                 if (msiChanged) await RebuildProvidersAndReconnectAsync();
                 else await ConnectAndRefreshAsync();
             }
@@ -243,7 +250,23 @@ public partial class MainWindow : Window
         await ConnectAndRefreshAsync();
     }
 
+    private bool _refreshing;
+
     private async Task ConnectAndRefreshAsync()
+    {
+        // Eine Suche kann wegen des MSI-SDK bis zu ~1 min dauern; ein zweiter Klick darf keine
+        // parallele Verbindung zu denselben Providern starten.
+        if (_refreshing)
+        {
+            Log("Gerätesuche läuft bereits — bitte warten.");
+            return;
+        }
+        _refreshing = true;
+        try { await ConnectAndRefreshCoreAsync(); }
+        finally { _refreshing = false; }
+    }
+
+    private async Task ConnectAndRefreshCoreAsync()
     {
         StatusText.Text = "Suche Geräte …";
         SidebarStatusText.Text = "Suche Geräte …";
