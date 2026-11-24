@@ -6,6 +6,10 @@ on:
       - "v*"
   workflow_dispatch: {}
 
+# Nötig, damit softprops/action-gh-release das Release anlegen darf (sonst 403).
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
