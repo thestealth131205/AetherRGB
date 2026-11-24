@@ -67,19 +67,19 @@ public sealed class CanvasRainbowWaveEffect : ICanvasEffect
     }
 }
 
-/// <summary>Ein weicher, kreisförmiger "Puls" von der Canvas-Mitte aus — expandiert/zieht sich
-/// zusammen und wird dabei über eine konfigurierbare Zweifarb-Palette gefärbt.</summary>
+/// <summary>Ein weicher, kreisförmiger "Puls" von der Canvas-Mitte aus — ein Ring in der gewählten Farbe
+/// läuft nach außen, dazwischen ist es dunkel (bzw. <c>background</c>).</summary>
 public sealed class CanvasRadialPulseEffect : ICanvasEffect
 {
     public string Name => "Radialer Puls";
-    private readonly RgbColor _from;
-    private readonly RgbColor _to;
+    private readonly RgbColor _color;
+    private readonly RgbColor _background;
     private readonly double _speedHz;
 
-    public CanvasRadialPulseEffect(RgbColor from, RgbColor to, double speedHz = 0.3)
+    public CanvasRadialPulseEffect(RgbColor color, RgbColor? background = null, double speedHz = 0.3)
     {
-        _from = from;
-        _to = to;
+        _color = color;
+        _background = background ?? RgbColor.Black;
         _speedHz = speedHz;
     }
 
@@ -93,7 +93,7 @@ public sealed class CanvasRadialPulseEffect : ICanvasEffect
         // Ring, der nach außen läuft: Abstand zur aktuellen "Pulswelle" bestimmt die Mischung.
         double ringDist = Math.Abs(dist - phase);
         double t = 1.0 - Math.Clamp(ringDist * 2.5, 0.0, 1.0);
-        return RgbColor.Lerp(_from, _to, t);
+        return RgbColor.Lerp(_background, _color, t);
     }
 }
 
@@ -125,7 +125,10 @@ public sealed class CanvasGradientSweepEffect : ICanvasEffect
 
         double projection = nx * dirX + ny * dirY;
         double shift = elapsed.TotalSeconds * _speedHz;
-        double t = ((projection + shift) % 1.0 + 1.0) % 1.0;
+        double phase = ((projection + shift) % 1.0 + 1.0) % 1.0;
+        // Hin und zurück (Farbe 1 → 2 → 1) statt Sägezahn — sonst gäbe es eine harte Kante, wo der
+        // Verlauf von Farbe 2 wieder auf Farbe 1 springt.
+        double t = 1.0 - Math.Abs(2.0 * phase - 1.0);
         return RgbColor.Lerp(_from, _to, t);
     }
 }

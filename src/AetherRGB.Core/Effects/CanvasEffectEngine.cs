@@ -84,9 +84,10 @@ public sealed class CanvasEffectEngine : IDisposable
                     // Bewusst "fire and forget" mit Fehlerschlucken pro Tick — ein einzelner fehlgeschlagener
                     // Frame (z. B. kurzer WLED-Netzwerkhänger) darf die laufende Animation auf allen anderen
                     // Geräten nie unterbrechen.
-                    _ = provider.SetZoneColorsAsync(item.DeviceId, item.ZoneIndex, colors).ContinueWith(t =>
+                    var deviceId = item.DeviceId;
+                    _ = provider.SetZoneColorsAsync(deviceId, item.ZoneIndex, colors).ContinueWith(t =>
                     {
-                        if (t.Exception is not null) { /* bewusst ignoriert, siehe Kommentar oben */ }
+                        if (t.Exception is not null) ReportSendError(deviceId, t.Exception);
                     }, TaskScheduler.Default);
                 }
             }
@@ -99,6 +100,32 @@ public sealed class CanvasEffectEngine : IDisposable
         {
             Volatile.Write(ref _ticking, 0);
         }
+    }
+
+    /// <summary>Fehler beim Senden an ein Gerät: Geräte-ID, Fehlertext. Pro Gerät höchstens alle
+    /// <see cref="SendErrorInterval"/> gemeldet (mit Anzahl der unterdrückten), sonst flutet ein
+    /// offline gegangener WLED-Strip bei 30+ FPS das Log.</summary>
+    public event Action<string, string>? SendError;
+
+    private static readonly TimeSpan SendErrorInterval = TimeSpan.FromSeconds(30);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime LastReported, int Suppressed)> _sendErrors = new();
+
+    private void ReportSendError(string deviceId, Exception ex)
+    {
+        var now = DateTime.UtcNow;
+        bool report = false;
+        int suppressed = 0;
+        _sendErrors.AddOrUpdate(deviceId,
+            _ => { report = true; return (now, 0); },
+            (_, s) =>
+            {
+                if (now - s.LastReported < SendErrorInterval) { report = false; return (s.LastReported, s.Suppressed + 1); }
+                report = true; suppressed = s.Suppressed;
+                return (now, 0);
+            });
+        if (!report) return;
+        SendError?.Invoke(deviceId, Diagnostics.ExceptionText.Describe(ex) +
+            (suppressed > 0 ? $" ({suppressed} weitere Fehler in den letzten {SendErrorInterval.TotalSeconds:0} s)" : ""));
     }
 
     public void Dispose() => Stop();

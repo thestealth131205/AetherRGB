@@ -1,4 +1,5 @@
 using AetherRGB.Core.Devices;
+using AetherRGB.Core.Diagnostics;
 
 namespace AetherRGB.Providers.MsiMysticLight;
 
@@ -9,7 +10,7 @@ namespace AetherRGB.Providers.MsiMysticLight;
 /// viele Boards) basiert dieser Provider auf einem allgemeinen, nicht für dieses konkrete Board
 /// verifizierten Report-Format (siehe <see cref="MsiMysticLightProtocol"/>). Erster Test sollte
 /// immer <see cref="RunSafeSingleZoneTestAsync"/> sein, nicht ein voller Effekt über alle Zonen.</summary>
-public sealed class MsiMysticLightDeviceProvider : IDeviceProvider
+public sealed class MsiMysticLightDeviceProvider : IDeviceProvider, IProviderLog
 {
     public string ProviderId => "msimysticlight";
     public bool IsConnected { get; private set; }
@@ -20,15 +21,15 @@ public sealed class MsiMysticLightDeviceProvider : IDeviceProvider
     /// falls die tatsächliche LED-Anzahl am Header abweicht.</summary>
     public int LedCountOverride { get; set; } = 1;
 
-    public event Action<string>? Log;
+    public event Action<LogLevel, string>? Log;
 
     private readonly MsiHidTransport _transport = new();
 
     public Task ConnectAsync(CancellationToken ct = default)
     {
-        IsConnected = _transport.TryOpen(msg => Log?.Invoke(msg));
+        IsConnected = _transport.TryOpen(msg => Log?.Invoke(LogLevel.Info, msg));
         if (!IsConnected)
-            Log?.Invoke("MSI Mystic Light: kein passendes HID-Gerät gefunden oder Öffnen fehlgeschlagen. " +
+            Log?.Invoke(LogLevel.Warning, "MSI Mystic Light: kein passendes HID-Gerät gefunden oder Öffnen fehlgeschlagen. " +
                         "Bekannte MSI-USB-HID-Geräte zur Diagnose: " +
                         string.Join(" | ", MsiHidTransport.DumpDiscoveredDevices()));
         return Task.CompletedTask;
@@ -84,7 +85,7 @@ public sealed class MsiMysticLightDeviceProvider : IDeviceProvider
         if (!IsConnected) return false;
         var report = MsiMysticLightProtocol.BuildSingleZoneTestReport(zoneIndex: 0);
         bool sent = _transport.WriteFeatureReport(report) || _transport.WriteOutputReport(report);
-        Log?.Invoke(sent
+        Log?.Invoke(sent ? LogLevel.Info : LogLevel.Error, sent
             ? "Testreport (Magenta, Zone 0) gesendet — bitte prüfen, ob eine LED reagiert hat."
             : "Testreport konnte nicht gesendet werden (Schreibfehler auf dem HID-Stream).");
         await Task.CompletedTask;

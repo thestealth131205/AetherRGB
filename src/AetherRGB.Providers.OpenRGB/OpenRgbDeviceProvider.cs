@@ -1,4 +1,5 @@
 using AetherRGB.Core.Devices;
+using AetherRGB.Core.Diagnostics;
 
 namespace AetherRGB.Providers.OpenRGB;
 
@@ -6,10 +7,12 @@ namespace AetherRGB.Providers.OpenRGB;
 /// MSI Mystic Light) über einen lokal laufenden OpenRGB-SDK-Server (Standard: 127.0.0.1:6742)
 /// ein. Erfordert, dass OpenRGB selbst installiert ist und läuft — AetherRGB spricht nur die
 /// SDK-Schnittstelle an, niemals direkt die Hardware.</summary>
-public sealed class OpenRgbDeviceProvider : IDeviceProvider
+public sealed class OpenRgbDeviceProvider : IDeviceProvider, IProviderLog
 {
     public string ProviderId => "openrgb";
     public bool IsConnected { get; private set; }
+
+    public event Action<LogLevel, string>? Log;
 
     private readonly string _host;
     private readonly int _port;
@@ -24,6 +27,7 @@ public sealed class OpenRgbDeviceProvider : IDeviceProvider
 
     public async Task ConnectAsync(CancellationToken ct = default)
     {
+        Log?.Invoke(LogLevel.Debug, $"Verbinde mit OpenRGB-SDK-Server {_host}:{_port} …");
         try
         {
             _client = new OpenRgbClient(_host, _port);
@@ -35,10 +39,15 @@ public sealed class OpenRgbDeviceProvider : IDeviceProvider
                 _controllers.Add(await _client.GetControllerDataAsync(i, ct));
 
             IsConnected = true;
+            Log?.Invoke(count > 0 ? LogLevel.Info : LogLevel.Warning, count > 0
+                ? $"Verbunden mit {_host}:{_port}, {count} Controller: {string.Join(", ", _controllers.Select(c => c.Name))}"
+                : $"Verbunden mit {_host}:{_port}, aber OpenRGB meldet keine Controller (Geräte in OpenRGB erkannt?).");
         }
-        catch
+        catch (Exception ex)
         {
             IsConnected = false;
+            Log?.Invoke(LogLevel.Warning, $"Keine Verbindung zu {_host}:{_port} — {ExceptionText.Describe(ex)}. " +
+                                          "Läuft OpenRGB mit gestartetem SDK-Server (Tab „SDK Server“ → „Start Server“)?");
             // Bewusst kein Rethrow — kein laufendes OpenRGB ist ein normaler, erwarteter Zustand
             // (z. B. Nutzer hat nur WLED/Home Assistant, kein ARGB-Mainboard), kein Fehler der App.
         }

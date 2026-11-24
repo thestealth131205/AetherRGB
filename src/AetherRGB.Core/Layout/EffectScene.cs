@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AetherRGB.Core.Devices;
 using AetherRGB.Core.Effects;
 
 namespace AetherRGB.Core.Layout;
@@ -22,21 +23,67 @@ public sealed class EffectScene
     public double CanvasHeight { get; set; } = 800;
     public List<DeviceLayoutItem> Items { get; set; } = new();
 
-    private ICanvasEffect? _effect;
-    private string? _effectInstanceId;
+    /// <summary>Vom Nutzer gewählte Farben als Hex (<c>#RRGGBB</c>), pro Effekt-ID — so bleiben die Farben
+    /// des Farbverlaufs erhalten, wenn man kurz auf einen anderen Effekt wechselt und zurück.</summary>
+    public Dictionary<string, List<string>> EffectColors { get; set; } = new();
 
-    /// <summary>Laufende Effektinstanz passend zu <see cref="EffectId"/> — wird bei Wechsel neu erzeugt.</summary>
+    private readonly object _effectLock = new();
+    private ICanvasEffect? _effect;
+    private string? _effectInstanceKey;
+
+    /// <summary>Die Farben für <see cref="EffectId"/>: gespeicherte Werte, fehlende/ungültige durch die
+    /// Standardfarben des Effekts ersetzt.</summary>
+    public IReadOnlyList<RgbColor> GetEffectColors()
+    {
+        lock (_effectLock) return ResolveColors(EffectCatalog.Get(EffectId));
+    }
+
+    public void SetEffectColor(int slot, RgbColor color)
+    {
+        lock (_effectLock)
+        {
+            var descriptor = EffectCatalog.Get(EffectId);
+            if (slot < 0 || slot >= descriptor.ColorSlots.Count) return;
+            var colors = ResolveColors(descriptor).Select(c => c.ToHex()).ToList();
+            colors[slot] = color.ToHex();
+            EffectColors[descriptor.Id] = colors;
+            _effectInstanceKey = null;
+        }
+    }
+
+    private IReadOnlyList<RgbColor> ResolveColors(EffectDescriptor descriptor)
+    {
+        EffectColors.TryGetValue(descriptor.Id, out var stored);
+        var result = new RgbColor[descriptor.ColorSlots.Count];
+        for (int i = 0; i < result.Length; i++)
+        {
+            result[i] = descriptor.ColorSlots[i].Default;
+            if (stored is not null && i < stored.Count)
+            {
+                try { result[i] = RgbColor.FromHex(stored[i]); }
+                catch (Exception e) when (e is FormatException or ArgumentException or OverflowException) { }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Laufende Effektinstanz passend zu <see cref="EffectId"/> und den gewählten Farben — wird bei
+    /// Wechsel neu erzeugt. Wird gleichzeitig vom Engine-Timer und der UI gelesen, daher gesperrt.</summary>
     [JsonIgnore]
     public ICanvasEffect Effect
     {
         get
         {
-            if (_effect is null || _effectInstanceId != EffectId)
+            lock (_effectLock)
             {
-                _effect = EffectCatalog.Get(EffectId).Create();
-                _effectInstanceId = EffectId;
+                if (_effect is null || _effectInstanceKey != EffectId)
+                {
+                    var descriptor = EffectCatalog.Get(EffectId);
+                    _effect = descriptor.Create(ResolveColors(descriptor));
+                    _effectInstanceKey = EffectId;
+                }
+                return _effect;
             }
-            return _effect;
         }
     }
 }

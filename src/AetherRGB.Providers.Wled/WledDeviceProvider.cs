@@ -2,16 +2,19 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AetherRGB.Core.Devices;
+using AetherRGB.Core.Diagnostics;
 
 namespace AetherRGB.Providers.Wled;
 
 /// <summary>Steuert ein oder mehrere WLED-Geräte über deren offizielle lokale JSON-API
 /// (`GET /json/info`, `POST /json/state`) — rein lokales HTTP im eigenen Netz, kein Cloud-Dienst
 /// von WLED beteiligt. Siehe https://kno.wled.ge/interfaces/json-api/.</summary>
-public sealed class WledDeviceProvider : IDeviceProvider
+public sealed class WledDeviceProvider : IDeviceProvider, IProviderLog
 {
     public string ProviderId => "wled";
     public bool IsConnected { get; private set; }
+
+    public event Action<LogLevel, string>? Log;
 
     private readonly Dictionary<string, (string Host, int LedCount, string Name)> _instances = new();
     private readonly HttpClient _http;
@@ -36,11 +39,15 @@ public sealed class WledDeviceProvider : IDeviceProvider
                     var existing = _instances[host];
                     _instances[host] = (host, info.Leds.Count, existing.Name);
                     anyReachable = true;
+                    Log?.Invoke(info.Leds.Count > 0 ? LogLevel.Info : LogLevel.Warning,
+                        $"{existing.Name} ({host}): erreichbar, WLED {info.Version} „{info.Name}“, {info.Leds.Count} LEDs" +
+                        (info.Leds.Count > 0 ? "" : " — ohne LEDs wird das Gerät nicht angezeigt (LED-Anzahl in WLED einstellen)"));
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 // Einzelnes nicht erreichbares WLED-Gerät blockiert die anderen nicht.
+                Log?.Invoke(LogLevel.Warning, $"{_instances[host].Name} ({host}): nicht erreichbar — {ExceptionText.Describe(ex)}");
             }
         }
         IsConnected = anyReachable;
@@ -87,6 +94,7 @@ public sealed class WledDeviceProvider : IDeviceProvider
     {
         [JsonPropertyName("leds")] public WledLedsInfo Leds { get; set; } = new();
         [JsonPropertyName("name")] public string Name { get; set; } = "";
+        [JsonPropertyName("ver")] public string Version { get; set; } = "";
     }
 
     private sealed class WledLedsInfo

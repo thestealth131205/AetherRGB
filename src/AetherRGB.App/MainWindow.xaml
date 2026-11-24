@@ -210,10 +210,43 @@
             </Grid>
 
             <!-- ==== Log-Leiste unten, immer sichtbar ==== -->
-            <Border Grid.Row="1" Background="{StaticResource BrushPanel}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,1,0,0" Padding="20,10">
-                <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto">
-                    <TextBlock x:Name="LogText" Style="{StaticResource MutedText}" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
-                </ScrollViewer>
+            <Border Grid.Row="1" Background="{StaticResource BrushPanel}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,1,0,0" Padding="20,8,12,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <!-- Neueste Zeile unten (scrollt mit, solange man unten steht); Zeitstempel und Stufe pro Zeile, Warnungen/Fehler farbig. -->
+                    <ScrollViewer x:Name="LogScroll" Grid.Column="0" Height="150" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="LogList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type local:LogEntry}">
+                                    <TextBlock x:Name="Line" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" Foreground="{StaticResource BrushText}">
+                                        <Run Text="{Binding TimeText, Mode=OneTime}" Foreground="{StaticResource BrushTextMuted}" />
+                                        <Run Text="{Binding LevelText, Mode=OneTime}" />
+                                        <Run Text="{Binding Message, Mode=OneTime}" />
+                                    </TextBlock>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding Level}" Value="Debug">
+                                            <Setter TargetName="Line" Property="Foreground" Value="{StaticResource BrushTextMuted}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Level}" Value="Warning">
+                                            <Setter TargetName="Line" Property="Foreground" Value="{StaticResource BrushWarning}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Level}" Value="Error">
+                                            <Setter TargetName="Line" Property="Foreground" Value="{StaticResource BrushDanger}" />
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Top" Margin="12,0,0,0">
+                        <Button x:Name="LogSaveButton" Content="💾 Speichern" Padding="12,6" Click="OnLogSaveClick"
+                                ToolTip="Angezeigtes Log als Textdatei speichern" />
+                        <TextBlock x:Name="LogCountText" Style="{StaticResource MutedText}" FontSize="11" Margin="0,6,0,0" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
             </Border>
         </Grid>
     </Grid>

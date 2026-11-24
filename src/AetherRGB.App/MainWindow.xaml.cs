@@ -1,6 +1,9 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using Drawing = System.Drawing;
@@ -8,6 +11,7 @@ using Forms = System.Windows.Forms;
 using AetherRGB.Api;
 using AetherRGB.Core.Config;
 using AetherRGB.Core.Devices;
+using AetherRGB.Core.Diagnostics;
 using AetherRGB.Core.Effects;
 using AetherRGB.Core.Layout;
 using AetherRGB.Core.Update;
@@ -40,16 +44,25 @@ public partial class MainWindow : Window
     private readonly List<WledRow> _wledRows = new();
     private Forms.NotifyIcon? _trayIcon;
     private bool _isExiting;
+    private readonly ObservableCollection<LogEntry> _log = new();
+    private const int MaxLogEntries = 3000;
+    private int _logWarnings, _logErrors;
+
+    private static string AppVersion => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+    private static bool IsInstalled => File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
 
     public MainWindow()
     {
         InitializeComponent();
+        LogList.ItemsSource = _log;
 
         CleanupOldPortableExe();
         _config = AppConfig.LoadOrCreateDefault();
+        LogStartupInfo();
         _engine = new CanvasEffectEngine(_registry);
         _engine.SetScenes(_scenes);
         _engine.SetShapes(_shapes);
+        _engine.SendError += (deviceId, error) => Log($"Senden an {deviceId} fehlgeschlagen: {error}", LogLevel.Warning);
 
         EffectsPanel.LogMessage += Log;
         EffectsPanel.AddWledDevicesAsync = AddWledDevicesAsync;
@@ -68,7 +81,7 @@ public partial class MainWindow : Window
             // Ein fehlerhafter Provider (z. B. nicht erreichbares OpenRGB/HA, falsch konfigurierter
             // Port) darf die ganze App nicht mit in den Abgrund reißen — lieber sichtbar loggen und
             // mit den übrigen, funktionierenden Providern weiterlaufen.
-            Log("Fehler beim Aufbau der Geräte-Provider: " + ex.Message);
+            Log("Fehler beim Aufbau der Geräte-Provider: " + ExceptionText.Describe(ex), LogLevel.Error);
         }
 
         Loaded += async (_, _) =>
@@ -80,7 +93,7 @@ public partial class MainWindow : Window
                 if (msiChanged) await RebuildProvidersAndReconnectAsync();
                 else await ConnectAndRefreshAsync();
             }
-            catch (Exception ex) { Log("Fehler beim Verbinden/Suchen von Geräten: " + ex.Message); }
+            catch (Exception ex) { Log("Fehler beim Verbinden/Suchen von Geräten: " + ExceptionText.Describe(ex), LogLevel.Error); }
 
             // Die Engine läuft dauerhaft; was tatsächlich an die LEDs geht, steuert jedes
             // Effekt-Fenster selbst (Abspielen/Pausieren).
@@ -110,7 +123,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Log("Tray-Symbol konnte nicht erstellt werden: " + ex.Message);
+            Log("Tray-Symbol konnte nicht erstellt werden: " + ExceptionText.Describe(ex), LogLevel.Warning);
         }
     }
 
@@ -168,7 +181,10 @@ public partial class MainWindow : Window
         // Ohne das würde die Engine nach "Einstellungen speichern" weiter an die alte, bereits
         // entsorgte Registry senden.
         _engine.SetRegistry(_registry);
-        _registry.ProviderError += (providerId, ex) => Log($"[{providerId}] {ex.Message}");
+        _registry.ProviderError += (providerId, ex) => Log($"[{providerId}] {ExceptionText.Describe(ex)}", LogLevel.Error);
+        _registry.ProviderConnectFinished += (provider, elapsed) => Log(
+            $"[{provider.ProviderId}] {(provider.IsConnected ? "verbunden" : "nicht verbunden")} ({elapsed.TotalMilliseconds:0} ms)",
+            provider.IsConnected ? LogLevel.Info : LogLevel.Warning);
         _msiProvider = null;
 
         if (_config.OpenRgb.Enabled)
@@ -187,12 +203,10 @@ public partial class MainWindow : Window
                 {
                     DllPath = string.IsNullOrWhiteSpace(_config.MsiMysticLight.SdkDllPath) ? null : _config.MsiMysticLight.SdkDllPath
                 };
-                sdkProvider.Log += msg => Dispatcher.Invoke(() => Log("[MSI SDK] " + msg));
                 _registry.Register(sdkProvider);
                 break;
             case MsiBackend.DirectHid:
                 _msiProvider = new MsiMysticLightDeviceProvider { LedCountOverride = _config.MsiMysticLight.LedCountOverride };
-                _msiProvider.Log += msg => Dispatcher.Invoke(() => Log("[MSI] " + msg));
                 _registry.Register(_msiProvider);
                 break;
         }
@@ -204,14 +218,22 @@ public partial class MainWindow : Window
             _ = _api.StartAsync().ContinueWith(t =>
             {
                 if (t.Exception is not null)
-                    Dispatcher.Invoke(() => Log($"Lokale API konnte Port {_config.LocalApi.Port} nicht binden: {t.Exception.InnerException?.Message}"));
+                    Log($"Lokale API konnte Port {_config.LocalApi.Port} nicht binden: {ExceptionText.Describe(t.Exception)}", LogLevel.Error);
                 else
-                    Dispatcher.Invoke(() => Log($"Lokale API läuft auf http://127.0.0.1:{_config.LocalApi.Port}/api — keine Verbindung nach außen."));
+                    Log($"Lokale API läuft auf http://127.0.0.1:{_config.LocalApi.Port}/api — keine Verbindung nach außen.");
             });
         }
 
+        // Alle Provider-Details (Verbindungsversuche, Fehlergründe) landen in der Log-Leiste.
+        foreach (var provider in _registry.Providers.OfType<IProviderLog>())
+        {
+            var id = ((IDeviceProvider)provider).ProviderId;
+            provider.Log += (level, msg) => Log($"[{id}] {msg}", level);
+        }
+
         Log($"Provider aktiv: {string.Join(", ", _registry.Providers.Select(p => p.ProviderId))}" +
-            (_registry.Providers.Count == 0 ? " (keiner — in den Einstellungen mindestens einen aktivieren)" : ""));
+            (_registry.Providers.Count == 0 ? " (keiner — in den Einstellungen mindestens einen aktivieren)" : ""),
+            _registry.Providers.Count == 0 ? LogLevel.Warning : LogLevel.Info);
     }
 
     private async Task RebuildProvidersAndReconnectAsync()
@@ -225,8 +247,10 @@ public partial class MainWindow : Window
     {
         StatusText.Text = "Suche Geräte …";
         SidebarStatusText.Text = "Suche Geräte …";
+        Log($"Suche Geräte bei {_registry.Providers.Count} Provider(n) …", LogLevel.Debug);
         await _registry.ConnectAllAsync();
         var devices = await _registry.GetAllDevicesAsync();
+        LogDevices(devices);
 
         DeviceList.ItemsSource = devices.Select(d => new DeviceRow
         {
@@ -382,7 +406,7 @@ public partial class MainWindow : Window
         catch (System.ComponentModel.Win32Exception)
         {
             // UAC-Abfrage abgelehnt — einfach ohne Adminrechte weiterlaufen.
-            Log("Neustart als Administrator abgebrochen — das Mystic Light SDK wird ohne Adminrechte nicht starten.");
+            Log("Neustart als Administrator abgebrochen — das Mystic Light SDK wird ohne Adminrechte nicht starten.", LogLevel.Warning);
             return false;
         }
         ExitFromTray();
@@ -430,7 +454,7 @@ public partial class MainWindow : Window
         {
             LedCountOverride = int.TryParse(MsiLedCountBox.Text, out var lc) && lc > 0 ? lc : 1
         };
-        provider.Log += msg => Dispatcher.Invoke(() => Log("[MSI] " + msg));
+        if (provider != _msiProvider) provider.Log += (level, msg) => Log("[msi] " + msg, level);
 
         await provider.ConnectAsync();
         if (!provider.IsConnected)
@@ -486,14 +510,14 @@ public partial class MainWindow : Window
         var result = _repair.Repair();
         Log("Reparatur abgeschlossen:");
         foreach (var step in result.StepsPerformed) Log("  • " + step);
-        foreach (var warning in result.Warnings) Log("  ⚠ " + warning);
+        foreach (var warning in result.Warnings) Log("  ⚠ " + warning, LogLevel.Warning);
         MessageBox.Show(this, "Reparatur abgeschlossen. Details siehe Log unten.\nEin Neustart der App wird empfohlen.",
             "AetherRGB — Reparieren", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private async void OnCheckUpdateClick(object sender, RoutedEventArgs e)
     {
-        var currentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+        var currentVersion = AppVersion;
         var originalContent = UpdateButton.Content;
         UpdateButton.IsEnabled = false;
         UpdateButton.Content = "Suche …";
@@ -508,7 +532,7 @@ public partial class MainWindow : Window
 
             // Installiert = Inno Setup hat seinen Uninstaller neben die EXE gelegt. Sonst läuft die
             // portable EXE, und die wird durch die neue portable EXE ersetzt.
-            bool installed = File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
+            bool installed = IsInstalled;
             var asset = installed ? release.Setup : release.Portable;
             if (asset is null)
             {
@@ -529,14 +553,14 @@ public partial class MainWindow : Window
 
             var progress = new Progress<double>(p => UpdateButton.Content = $"Lade … {p:P0}");
             Log($"Lade {asset.Name} ({asset.Size / 1024.0 / 1024.0:F1} MB) von GitHub …");
-            if (asset.Sha256 is null) Log("  ⚠ Release enthält keine SHA-256-Prüfsumme — nur die Dateigröße wird geprüft.");
+            if (asset.Sha256 is null) Log("  ⚠ Release enthält keine SHA-256-Prüfsumme — nur die Dateigröße wird geprüft.", LogLevel.Warning);
 
             if (installed) await InstallSetupUpdateAsync(asset, release.Version, progress);
             else await ReplacePortableExeAsync(asset, release.Version, progress);
         }
         catch (Exception ex)
         {
-            Log("Update fehlgeschlagen: " + ex.Message);
+            Log("Update fehlgeschlagen: " + ExceptionText.Describe(ex), LogLevel.Error);
             MessageBox.Show(this, "Update fehlgeschlagen:\n\n" + ex.Message, "AetherRGB — Update", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
@@ -562,7 +586,7 @@ public partial class MainWindow : Window
         }
         catch (System.ComponentModel.Win32Exception)
         {
-            Log("Installer-Start abgebrochen. Er liegt unter: " + setupPath);
+            Log("Installer-Start abgebrochen. Er liegt unter: " + setupPath, LogLevel.Warning);
             return;
         }
         ExitFromTray();
@@ -582,7 +606,7 @@ public partial class MainWindow : Window
             var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
             var fallback = Path.Combine(downloads, $"AetherRGB-Portable-x64-{version}.exe");
             await _updateChecker.DownloadAsync(asset, fallback, progress);
-            Log("Kein Schreibzugriff auf den EXE-Ordner — neue Version liegt unter: " + fallback);
+            Log("Kein Schreibzugriff auf den EXE-Ordner — neue Version liegt unter: " + fallback, LogLevel.Warning);
             Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{fallback}\"") { UseShellExecute = true });
             return;
         }
@@ -624,7 +648,104 @@ public partial class MainWindow : Window
 
     private static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
-    private void Log(string message) => LogText.Text = message + "\n" + LogText.Text;
+    // ===================== Log-Leiste =====================
+
+    /// <summary>Hängt eine Zeile an die Log-Leiste an. Darf von jedem Thread aufgerufen werden.</summary>
+    private void Log(string message, LogLevel level = LogLevel.Info)
+    {
+        var entry = new LogEntry { Time = DateTime.Now, Level = level, Message = message };
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => AddLogEntry(entry));
+            return;
+        }
+        AddLogEntry(entry);
+    }
+
+    private void AddLogEntry(LogEntry entry)
+    {
+        // Nur mitscrollen, wenn man unten steht — sonst springt die Ansicht beim Zurücklesen weg.
+        bool atEnd = LogScroll.VerticalOffset >= LogScroll.ScrollableHeight - 2;
+        _log.Add(entry);
+        Count(entry, +1);
+        while (_log.Count > MaxLogEntries)
+        {
+            Count(_log[0], -1);
+            _log.RemoveAt(0);
+        }
+        if (atEnd) LogScroll.ScrollToEnd();
+
+        LogCountText.Text = $"{_log.Count} Zeilen" + (_logErrors > 0 ? $" · {_logErrors} Fehler" : "") + (_logWarnings > 0 ? $" · {_logWarnings} Warn." : "");
+
+        void Count(LogEntry e, int delta)
+        {
+            if (e.Level == LogLevel.Error) _logErrors += delta;
+            else if (e.Level == LogLevel.Warning) _logWarnings += delta;
+        }
+    }
+
+    /// <summary>Umgebung und Konfiguration beim Start — damit ein gespeichertes Log ohne Rückfragen
+    /// zeigt, womit die App lief. Das HA-Token wird bewusst nie geloggt.</summary>
+    private void LogStartupInfo()
+    {
+        Log($"AetherRGB {AppVersion} gestartet ({(IsInstalled ? "installiert" : "portabel")}): {Environment.ProcessPath}");
+        Log($"System: {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture}), {RuntimeInformation.FrameworkDescription}, " +
+            $"Prozess {(Environment.Is64BitProcess ? "64" : "32")}-Bit, " +
+            $"{(MsiBoardDetector.IsElevated() ? "mit" : "ohne")} Administratorrechte, Sprache {System.Globalization.CultureInfo.CurrentUICulture.Name}", LogLevel.Debug);
+        Log("Datenordner: " + Path.GetDirectoryName(AppConfig.DefaultPath), LogLevel.Debug);
+        Log(_msiBoard is null
+            ? "Mainboard: kein MSI-Board erkannt."
+            : $"Mainboard: {_msiBoard.Manufacturer} {_msiBoard.Product} — MSI-Steuerweg: {_config.MsiMysticLight.Backend}", LogLevel.Debug);
+        Log("Konfiguration: " + string.Join("; ", new[]
+        {
+            _config.OpenRgb.Enabled ? $"OpenRGB {_config.OpenRgb.Host}:{_config.OpenRgb.Port}" : "OpenRGB aus",
+            _config.WledInstances.Count > 0 ? $"WLED {string.Join(", ", _config.WledInstances.Select(w => $"{w.Name} ({w.Host})"))}" : "kein WLED",
+            _config.HomeAssistant.Enabled
+                ? $"Home Assistant {_config.HomeAssistant.BaseUrl} (Token {(string.IsNullOrWhiteSpace(_config.HomeAssistant.LongLivedToken) ? "fehlt" : "gesetzt")})"
+                : "Home Assistant aus",
+            $"MSI {_config.MsiMysticLight.Backend}" + (_config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk
+                ? $" (DLL: {MsiMysticLightSdkDeviceProvider.FindSdkDll(_config.MsiMysticLight.SdkDllPath) ?? "nicht gefunden"})" : ""),
+            _config.LocalApi.Enabled ? $"lokale API Port {_config.LocalApi.Port}" : "lokale API aus"
+        }), LogLevel.Debug);
+        Log($"Effekt-Fenster: {_scenes.Scenes.Count}, platzierte Zonen: {_scenes.Scenes.Sum(sc => sc.Items.Count)}, " +
+            $"eigene LED-Anordnungen: {_shapes.Shapes.Count}", LogLevel.Debug);
+    }
+
+    private void LogDevices(IReadOnlyList<RgbDevice> devices)
+    {
+        Log($"{devices.Count} Gerät(e) gefunden.", devices.Count > 0 ? LogLevel.Info : LogLevel.Warning);
+        foreach (var d in devices)
+            Log($"  • {d.Name} [{d.Id}, {d.Vendor}{(d.IsOnline ? "" : ", offline")}] — " +
+                string.Join(", ", d.Zones.Select(z => $"Zone {z.Index} „{z.Name}“: {z.LedCount} LEDs")), LogLevel.Debug);
+    }
+
+    private void OnLogSaveClick(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Log speichern",
+            FileName = $"AetherRGB-Log-{DateTime.Now:yyyyMMdd-HHmmss}.txt",
+            DefaultExt = ".txt",
+            Filter = "Textdatei (*.txt)|*.txt|Alle Dateien (*.*)|*.*",
+            InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+        };
+        if (dialog.ShowDialog(this) != true) return;
+
+        try
+        {
+            var text = new StringBuilder()
+                .AppendLine($"AetherRGB {AppVersion} — Log gespeichert am {DateTime.Now:yyyy-MM-dd HH:mm:ss}")
+                .AppendLine(new string('-', 80));
+            foreach (var entry in _log) text.AppendLine(entry.ToString());
+            File.WriteAllText(dialog.FileName, text.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+            Log("Log gespeichert: " + dialog.FileName);
+        }
+        catch (Exception ex)
+        {
+            Log("Log konnte nicht gespeichert werden: " + ExceptionText.Describe(ex), LogLevel.Error);
+            MessageBox.Show(this, "Log konnte nicht gespeichert werden:\n\n" + ex.Message, "AetherRGB — Log", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
 
     protected override void OnClosed(EventArgs e)
     {

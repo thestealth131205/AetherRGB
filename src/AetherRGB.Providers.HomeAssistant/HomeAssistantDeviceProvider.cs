@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AetherRGB.Core.Devices;
+using AetherRGB.Core.Diagnostics;
 
 namespace AetherRGB.Providers.HomeAssistant;
 
@@ -18,10 +19,12 @@ namespace AetherRGB.Providers.HomeAssistant;
 /// HA-Integration (z. B. als `rest`-Light-Platform oder eigene HACS-Komponente) kann darüber
 /// die PC-Beleuchtung genauso gut von HA aus steuern.
 /// </summary>
-public sealed class HomeAssistantDeviceProvider : IDeviceProvider
+public sealed class HomeAssistantDeviceProvider : IDeviceProvider, IProviderLog
 {
     public string ProviderId => "homeassistant";
     public bool IsConnected { get; private set; }
+
+    public event Action<LogLevel, string>? Log;
 
     private readonly string _baseUrl;
     private readonly HttpClient _http;
@@ -54,10 +57,18 @@ public sealed class HomeAssistantDeviceProvider : IDeviceProvider
                 }
             }
             IsConnected = true;
+            Log?.Invoke(LogLevel.Info, $"Verbunden mit {_baseUrl}, {_lights.Count} Licht-Entities (light.*) gefunden.");
         }
-        catch
+        catch (Exception ex)
         {
             IsConnected = false;
+            var hint = (ex as HttpRequestException)?.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Unauthorized => " — Token ungültig oder abgelaufen (in HA ein neues Long-Lived Access Token erzeugen)",
+                System.Net.HttpStatusCode.NotFound => " — URL zeigt nicht auf Home Assistant (Beispiel: http://homeassistant.local:8123)",
+                _ => ""
+            };
+            Log?.Invoke(LogLevel.Warning, $"Keine Verbindung zu {_baseUrl} — {ExceptionText.Describe(ex)}{hint}");
         }
     }
 

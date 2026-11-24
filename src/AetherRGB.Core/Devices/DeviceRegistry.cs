@@ -7,6 +7,8 @@ public sealed class DeviceRegistry : IAsyncDisposable
 {
     private readonly List<IDeviceProvider> _providers = new();
     public event Action<string, Exception>? ProviderError;
+    /// <summary>Nach jedem Verbindungsversuch: Provider und Dauer — für die Log-Leiste.</summary>
+    public event Action<IDeviceProvider, TimeSpan>? ProviderConnectFinished;
 
     public void Register(IDeviceProvider provider) => _providers.Add(provider);
 
@@ -16,6 +18,7 @@ public sealed class DeviceRegistry : IAsyncDisposable
     {
         foreach (var provider in _providers)
         {
+            var started = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 await provider.ConnectAsync(ct);
@@ -24,6 +27,7 @@ public sealed class DeviceRegistry : IAsyncDisposable
             {
                 ProviderError?.Invoke(provider.ProviderId, ex);
             }
+            ProviderConnectFinished?.Invoke(provider, started.Elapsed);
         }
     }
 

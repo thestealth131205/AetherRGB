@@ -6,9 +6,11 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using AetherRGB.Core.Devices;
+using AetherRGB.Core.Diagnostics;
 using AetherRGB.Core.Effects;
 using AetherRGB.Core.Layout;
 using AetherRGB.Providers.Wled;
+using Forms = System.Windows.Forms;
 
 namespace AetherRGB.App;
 
@@ -49,7 +51,7 @@ public partial class EffectsView : UserControl
     private AvailableZone? _dragCandidate;
 
     /// <summary>Meldung für die Log-Leiste des Hauptfensters.</summary>
-    public event Action<string>? LogMessage;
+    public event Action<string, LogLevel>? LogMessage;
 
     /// <summary>Vom Hauptfenster gesetzt: übernimmt WLED-Geräte in die Konfiguration und verbindet neu.</summary>
     public Func<IReadOnlyList<(string Name, string Host)>, Task>? AddWledDevicesAsync { get; set; }
@@ -186,7 +188,7 @@ public partial class EffectsView : UserControl
         _scenes.Scenes.Add(scene);
         ShowScene(scene);
         SaveScenes();
-        LogMessage?.Invoke($"Effekt-Fenster '{scene.Name}' mit '{EffectCatalog.Get(effectId).Name}' angelegt.");
+        LogMessage?.Invoke($"Effekt-Fenster '{scene.Name}' mit '{EffectCatalog.Get(effectId).Name}' angelegt.", LogLevel.Info);
     }
 
     private void RemoveScene(EffectScene scene)
@@ -214,6 +216,7 @@ public partial class EffectsView : UserControl
         SceneNameBox.Text = scene.Name;
         EffectCombo.SelectedItem = EffectCatalog.Get(scene.EffectId);
         PlayPauseButton.Content = scene.IsRunning ? "⏸  Pausieren" : "▶  Abspielen";
+        BuildEffectColorControls();
         _suppressUiEvents = false;
 
         SurfaceRoot.Width = DeviceCanvas.Width = scene.CanvasWidth;
@@ -245,9 +248,87 @@ public partial class EffectsView : UserControl
     {
         if (_suppressUiEvents || _scene is null || EffectCombo.SelectedItem is not EffectDescriptor effect) return;
         _scene.EffectId = effect.Id;
+        BuildEffectColorControls();
         SaveScenes();
-        LogMessage?.Invoke($"'{_scene.Name}': Effekt '{effect.Name}'.");
+        LogMessage?.Invoke($"'{_scene.Name}': Effekt '{effect.Name}'.", LogLevel.Info);
     }
+
+    // ===================== Effekt-Farben =====================
+
+    /// <summary>Pro wählbarer Farbe des aktuellen Effekts: Beschriftung, Farbfeld (Klick = Farbdialog)
+    /// und Hex-Feld. Effekte ohne Farbwahl (z. B. Regenbogen) zeigen nichts.</summary>
+    private void BuildEffectColorControls()
+    {
+        EffectColorPanel.Children.Clear();
+        if (_scene is null) return;
+        var scene = _scene;
+        var descriptor = EffectCatalog.Get(scene.EffectId);
+        var colors = scene.GetEffectColors();
+
+        for (int i = 0; i < descriptor.ColorSlots.Count; i++)
+        {
+            int slot = i;
+            var label = new TextBlock
+            {
+                Text = descriptor.ColorSlots[i].Label,
+                Style = (Style)FindResource("MutedText"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(i == 0 ? 0 : 14, 0, 8, 0)
+            };
+            var swatch = new Border
+            {
+                Width = 30, Height = 30, CornerRadius = new CornerRadius(6),
+                BorderThickness = new Thickness(1), BorderBrush = (Brush)FindResource("BrushBorder"),
+                Background = new SolidColorBrush(ToWpf(colors[i])),
+                Cursor = Cursors.Hand, ToolTip = "Farbe wählen", Margin = new Thickness(0, 0, 6, 0)
+            };
+            var hexBox = new TextBox { Text = colors[i].ToHex(), Width = 80, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Hex-Farbe, z. B. #3B82F6" };
+
+            void Apply(RgbColor color)
+            {
+                // LostFocus kann noch feuern, nachdem auf ein anderes Fenster/einen anderen Effekt gewechselt wurde.
+                if (_scene != scene || scene.EffectId != descriptor.Id) return;
+                hexBox.Text = color.ToHex();
+                if (scene.GetEffectColors()[slot] == color) return;
+                scene.SetEffectColor(slot, color);
+                swatch.Background = new SolidColorBrush(ToWpf(color));
+                SaveScenes();
+                RenderPreview();
+                LogMessage?.Invoke($"'{scene.Name}': {descriptor.Name} — {descriptor.ColorSlots[slot].Label} = {color.ToHex()}.", LogLevel.Debug);
+            }
+
+            void ApplyHex()
+            {
+                var text = hexBox.Text.Trim();
+                if (!text.StartsWith('#')) text = "#" + text;
+                try { Apply(RgbColor.FromHex(text)); }
+                catch (Exception ex) when (ex is FormatException or ArgumentException or OverflowException)
+                {
+                    hexBox.Text = scene.GetEffectColors()[slot].ToHex();
+                }
+            }
+
+            swatch.MouseLeftButtonUp += (_, _) =>
+            {
+                var current = scene.GetEffectColors()[slot];
+                using var dialog = new Forms.ColorDialog
+                {
+                    FullOpen = true, AnyColor = true,
+                    Color = System.Drawing.Color.FromArgb(current.R, current.G, current.B)
+                };
+                if (dialog.ShowDialog() == Forms.DialogResult.OK)
+                    Apply(new RgbColor(dialog.Color.R, dialog.Color.G, dialog.Color.B));
+            };
+            hexBox.LostFocus += (_, _) => ApplyHex();
+            hexBox.KeyDown += (_, e) => { if (e.Key == Key.Enter) ApplyHex(); };
+
+            EffectColorPanel.Children.Add(label);
+            EffectColorPanel.Children.Add(swatch);
+            EffectColorPanel.Children.Add(hexBox);
+        }
+    }
+
+    private static Color ToWpf(RgbColor c) => Color.FromRgb(c.R, c.G, c.B);
 
     private void OnPlayPauseClick(object sender, RoutedEventArgs e)
     {
@@ -256,7 +337,7 @@ public partial class EffectsView : UserControl
         PlayPauseButton.Content = _scene.IsRunning ? "⏸  Pausieren" : "▶  Abspielen";
         BuildTabs();
         SaveScenes();
-        LogMessage?.Invoke($"'{_scene.Name}' {(_scene.IsRunning ? "läuft" : "pausiert")}.");
+        LogMessage?.Invoke($"'{_scene.Name}' {(_scene.IsRunning ? "läuft" : "pausiert")}.", LogLevel.Info);
     }
 
     // ===================== Fläche / Geräte-Visuals =====================
@@ -312,7 +393,7 @@ public partial class EffectsView : UserControl
         // Eine LED kann nur eine Farbe zeigen — liegt die Zone schon in einem anderen Fenster, wird sie verschoben.
         foreach (var other in _scenes.Scenes.Where(s => s != _scene))
             if (other.Items.RemoveAll(i => i.DeviceId == zone.DeviceId && i.ZoneIndex == zone.ZoneIndex) > 0)
-                LogMessage?.Invoke($"'{zone.DisplayName}' aus '{other.Name}' nach '{_scene.Name}' verschoben.");
+                LogMessage?.Invoke($"'{zone.DisplayName}' aus '{other.Name}' nach '{_scene.Name}' verschoben.", LogLevel.Info);
 
         var shape = _shapes.Get(zone.DeviceId, zone.ZoneIndex, zone.LedCount);
         var (w, h) = DefaultSize(shape);
@@ -452,7 +533,7 @@ public partial class EffectsView : UserControl
 
         _shapes.Set(deviceId, zoneIndex, shape);
         try { _shapes.Save(); }
-        catch (Exception ex) { LogMessage?.Invoke("LED-Anordnung konnte nicht gespeichert werden: " + ex.Message); }
+        catch (Exception ex) { LogMessage?.Invoke("LED-Anordnung konnte nicht gespeichert werden: " + ExceptionText.Describe(ex), LogLevel.Error); }
 
         // Andere Grundform -> Rechteck in allen Fenstern auf eine passende Startgröße setzen, sonst wird
         // z. B. ein Kreis in einen flachen Streifen gequetscht.
@@ -474,7 +555,7 @@ public partial class EffectsView : UserControl
         }
         UpdateFields();
         RefreshDeviceList();
-        LogMessage?.Invoke($"LED-Anordnung für '{name}' gespeichert: {ShapeName(shape)}.");
+        LogMessage?.Invoke($"LED-Anordnung für '{name}' gespeichert: {ShapeName(shape)}.", LogLevel.Info);
     }
 
     private static string ShapeName(LedShape shape) => shape.Kind switch
@@ -610,6 +691,6 @@ public partial class EffectsView : UserControl
     private void SaveScenes()
     {
         try { _scenes.Save(); }
-        catch (Exception ex) { LogMessage?.Invoke("Effekt-Fenster konnten nicht gespeichert werden: " + ex.Message); }
+        catch (Exception ex) { LogMessage?.Invoke("Effekt-Fenster konnten nicht gespeichert werden: " + ExceptionText.Describe(ex), LogLevel.Error); }
     }
 }
