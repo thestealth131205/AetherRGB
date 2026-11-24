@@ -63,6 +63,34 @@ public sealed class ScreenSyncConfig
     public string DefaultProfileId { get; set; } = "fortnite";
 }
 
+/// <summary>Sensor-Panel auf einem Zweitdisplay (z. B. 5"-USB-Display mit 1024 × 600), Werte aus Windows, NVIDIA und AIDA64.</summary>
+public sealed class SensorPanelConfig
+{
+    /// <summary>Panel als randloses Vollbild auf dem Zweitdisplay zeigen.</summary>
+    public bool DisplayEnabled { get; set; }
+
+    /// <summary>Gerätename des Monitors (z. B. <c>\\.\DISPLAY3</c>), leer = automatisch: ein Monitor, der nicht der
+    /// Hauptmonitor ist, bevorzugt mit genau der Panel-Auflösung.</summary>
+    public string Monitor { get; set; } = "";
+
+    public string PanelId { get; set; } = "uebersicht";
+
+    /// <summary>Werte aus dem gemeinsamen Speicher von AIDA64 lesen (dort muss „Gemeinsamen Speicher aktivieren“ an sein).</summary>
+    public bool UseAida64 { get; set; } = true;
+
+    /// <summary>NVIDIA-Grafikkarten über nvml.dll aus dem Treiber abfragen.</summary>
+    public bool UseNvidia { get; set; } = true;
+
+    /// <summary>Abfrage-Intervall der Sensoren in Millisekunden.</summary>
+    public int IntervalMs { get; set; } = 1000;
+
+    /// <summary>Bilder pro Sekunde auf dem Display (Animationen); das 5"-Display schafft laut Hersteller 25.</summary>
+    public int Fps { get; set; } = 25;
+
+    /// <summary>Panel-Fenster immer im Vordergrund halten.</summary>
+    public bool Topmost { get; set; } = true;
+}
+
 public sealed class LocalApiConfig
 {
     public bool Enabled { get; set; } = true;
@@ -129,6 +157,7 @@ public sealed class AppConfig
     public RazerChromaConfig RazerChroma { get; set; } = new();
     public MsiMysticLightConfig MsiMysticLight { get; set; } = new();
     public ScreenSyncConfig ScreenSync { get; set; } = new();
+    public SensorPanelConfig SensorPanel { get; set; } = new();
     public bool CheckForUpdatesOnStartup { get; set; } = true;
 
     /// <summary>Beim Anmelden an Windows minimiert (im Tray) starten. Standard an — fehlt in Dateien bis

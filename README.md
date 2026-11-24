@@ -139,19 +139,47 @@ Ebenen, Animations-Vorlagen und Keyframes. Die platzierten Geräte liegen zur Or
     abschalten; Spiele, die die Razer-Signatur der DLL prüfen, nutzen sie gar nicht. **Fortnite** gehört
     dazu: Es lädt Razers signierte Chroma-Editor-Bibliothek (`CChromaEditorLibrary64.dll`) und meldet ohne
     sie Fehler 6023 — dafür ist der Bildschirm-Sync da.
+- **Sensor-Panel für ein Zweitdisplay** (wie AIDA64s SensorPanel, Seitenleiste „📟 Sensor-Panel“): Systemwerte,
+  Verläufe, Uhr, Bilder und Animationen auf einem kleinen Zusatzbildschirm, z. B. dem
+  [5"-USB-Display mit 1024 × 600](https://www.lcdwiki.com/5inch_PC_Sub_Display). Das Display meldet sich mit
+  seinem USB-Treiber als normaler Windows-Monitor (in den Anzeigeeinstellungen „Erweitern“); AetherRGB legt ein
+  randloses Vollbild darauf, das nie den Fokus nimmt. „Automatisch“ nimmt nie den Hauptmonitor.
+  - **Werte ohne Zusatzprogramm** (Windows-Leistungsindikatoren, keine Treiber): CPU-Last gesamt und je
+    logischem Kern, aktueller CPU-Takt, Arbeitsspeicher, Commit, GPU-Last je Grafikkarte und Engine
+    (3D, Video, Kopieren) wie im Task-Manager, Grafikspeicher, Aktivität/Lese-/Schreibrate je Laufwerk mit
+    Art (NVMe, SATA-SSD, HDD, USB) und Sammelwerte „NVMe-/SSD-/HDD-Aktivität“, NVMe-Temperatur, Belegung
+    der Partitionen, Netzwerk, Prozesse, Laufzeit. **NVIDIA** zusätzlich über `nvml.dll` aus dem Treiber:
+    Temperatur, Last, VRAM, Leistung, Lüfter, Takte.
+  - **AIDA64**: liest den gemeinsamen Speicher (`AIDA64_SensorValues`) — damit alle Sensoren, die AIDA64
+    kennt (CPU-/Mainboard-/Laufwerkstemperaturen, Lüfter, Spannungen, Ströme, Leistung). In AIDA64 unter
+    Einstellungen → Hardwareüberwachung → Externe Programme „Gemeinsamen Speicher aktivieren“ einschalten.
+    AetherRGB liest nur. Ohne AIDA64 gibt es CPU-/Mainboard-Temperaturen und Lüfter nicht (dafür bräuchte es
+    einen Kernel-Treiber, den AetherRGB bewusst nicht mitbringt).
+  - **Editor** (eigenes Fenster): Elemente Text, Wert, Balken (durchgehend oder in Segmenten, waagerecht/
+    senkrecht), Rundinstrument, Verlauf (bis 10 min), Uhr/Datum, Animation (jeder Effekt aus dem Katalog,
+    auch eigene aus dem Effekt-Editor), Bild (PNG/JPG/BMP, animiertes GIF) und Rechteck. Verschieben,
+    Größe ziehen, Raster, Ebenen-Reihenfolge, Duplizieren, Kopieren/Einfügen, Rückgängig. Sensoren aus der
+    Liste mit Live-Werten auf die Fläche ziehen; mehrere Sensoren je Element (`aida/TCPU|nvml/0/temp`) =
+    der erste vorhandene gilt. Warn-/Kritisch-Schwellen mit eigenen Farben. „Live auf dem Display“ zeigt
+    Änderungen sofort auf dem Zweitdisplay. Größen-Vorlagen von 480 × 320 bis 1920 × 1080, Hintergrundbild.
+  - Panels liegen als JSON in `%APPDATA%\AetherRGB\panels` (Bilder in `panels\assets`), Import/Export.
+    Zwei Vorlagen für 1024 × 600: „Systemübersicht“ und „Animation mit Werten“.
+  - Alle Werte auch über die lokale API: `GET /api/sensors` und `GET /api/sensors/{id}`.
 
 ## Architektur
 
 ```
 AetherRGB.Core                 Geräte-Abstraktion (IDeviceProvider), Effekt-Engine, Konfiguration,
-                                Bildschirm-Sync-Analyse (Core/Screen: Bereiche, Regeln, Profile)
+                                Bildschirm-Sync-Analyse (Core/Screen: Bereiche, Regeln, Profile),
+                                Sensoren (Core/Sensors: Hub, AIDA64-Parser) und Sensor-Panels (Core/Panels)
 AetherRGB.Providers.OpenRGB     Motherboard-ARGB via OpenRGB-SDK-Protokoll
 AetherRGB.Providers.Wled        WLED-Geräte via UDP-Echtzeit + JSON-API
 AetherRGB.Providers.HomeAssistant  Home-Assistant-Lichter als Ziel UND als Quelle
 AetherRGB.Providers.MsiMysticLight MSI-RGB via offiziellem Mystic Light SDK oder direkt per USB/HID
 AetherRGB.Api                   Lokale REST-API (nur 127.0.0.1) und Chroma-REST-Nachbau (localhost:54235)
 native/ChromaBridge             Ersatz-RzChromaSDK64.dll (C) → UDP an AetherRGB
-AetherRGB.App                   WPF-Hauptanwendung, Bildschirmaufnahme (DXGI/GDI, Vortice) und Bereichs-Editor
+AetherRGB.App                   WPF-Hauptanwendung, Bildschirmaufnahme (DXGI/GDI, Vortice) und Bereichs-Editor,
+                                Sensor-Quellen (PDH, IOCTL, NVML) und Sensor-Panel (Renderer, Display-Fenster, Editor)
 ```
 
 ## Build

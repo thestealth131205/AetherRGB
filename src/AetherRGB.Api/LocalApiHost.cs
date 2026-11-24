@@ -18,6 +18,8 @@ namespace AetherRGB.Api;
 ///   GET  /api/devices                                 -> Liste aller erkannten Geräte/Zonen
 ///   PUT  /api/devices/{deviceId}/zones/{zoneIndex}/color   Body: {"hex":"#RRGGBB"}
 ///   GET  /api/health                                  -> {"status":"ok"}
+///   GET  /api/sensors                                 -> alle Systemwerte (Windows, NVIDIA, AIDA64), wie im Sensor-Panel
+///   GET  /api/sensors/{id}                            -> ein Wert, z. B. /api/sensors/win/cpu/load
 /// </summary>
 public sealed class LocalApiHost
 {
@@ -43,6 +45,20 @@ public sealed class LocalApiHost
         var app = builder.Build();
 
         app.MapGet("/api/health", () => Results.Json(new { status = "ok" }));
+
+        app.MapGet("/api/sensors", () =>
+        {
+            var hub = AetherRGB.Core.Sensors.SensorHub.Shared;
+            hub.Demand();
+            return Results.Json(hub.Snapshot.Values.OrderBy(r => r.Id).Select(SensorDto));
+        });
+
+        app.MapGet("/api/sensors/{**id}", (string id) =>
+        {
+            var hub = AetherRGB.Core.Sensors.SensorHub.Shared;
+            hub.Demand();
+            return hub.Get(id) is { } r ? Results.Json(SensorDto(r)) : Results.NotFound(new { error = $"Sensor '{id}' nicht gefunden (Liste: GET /api/sensors)." });
+        });
 
         app.MapGet("/api/devices", async () =>
         {
@@ -85,4 +101,15 @@ public sealed class LocalApiHost
     }
 
     public sealed record ColorRequest(string Hex);
+
+    private static object SensorDto(AetherRGB.Core.Sensors.SensorReading r) => new
+    {
+        id = r.Id,
+        name = r.Name,
+        group = r.Group,
+        source = r.Source,
+        unit = r.Unit,
+        value = r.IsNumeric ? r.Value : null,
+        text = r.IsNumeric ? AetherRGB.Core.Sensors.SensorFormat.Format(r, culture: System.Globalization.CultureInfo.InvariantCulture) : r.Text,
+    };
 }

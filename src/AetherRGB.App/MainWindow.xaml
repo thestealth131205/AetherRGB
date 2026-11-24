@@ -33,6 +33,10 @@
                     <Button x:Name="NavSettingsButton" Style="{StaticResource NavButton}" Click="OnNavClick">
                         <TextBlock Text="⚙  Einstellungen" />
                     </Button>
+                    <Button x:Name="NavSensorPanelButton" Style="{StaticResource NavButton}" Click="OnSensorPanelEditorClick"
+                            ToolTip="Sensor-Panel-Editor für ein Zweitdisplay öffnen (eigenes Fenster)">
+                        <TextBlock Text="📟  Sensor-Panel" />
+                    </Button>
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Bottom" Margin="20,0,20,20">
@@ -265,6 +269,43 @@
                                 <TextBlock x:Name="ScreenStatusText" TextWrapping="Wrap" Margin="0,10,0,8" />
                                 <Button Content="🖥  Bereiche und Profile bearbeiten …" HorizontalAlignment="Left" Click="OnScreenEditorClick" />
                                 <TextBlock Text="„Automatisch“ nimmt den Monitor, auf dem das Fenster im Vordergrund liegt — bedienst du AetherRGB auf dem zweiten Monitor, bleibt der des Spiels gewählt. Bei exklusivem Vollbild im Spiel möglichst „Fenstermodus-Vollbild“ (randlos) wählen; HDR kann die Farben verfälschen."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Sensor-Panel (Zweitdisplay, AIDA64) -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="Sensor-Panel (Zweitdisplay, AIDA64)" FontWeight="SemiBold" />
+                                <TextBlock Text="Zeigt Systemwerte, Verläufe, Uhr und Animationen auf einem kleinen Zweitdisplay — z. B. dem 5&quot;-USB-Display mit 1024 × 600. Das Display braucht seinen USB-Treiber (WinUSBDisplay) und muss in den Windows-Anzeigeeinstellungen auf „Erweitern“ stehen; AetherRGB legt dann ein randloses Vollbild darauf, wie AIDA64s SensorPanel. CPU-, GPU-, RAM-, NVMe-/HDD-Last und Netzwerk kommen direkt aus Windows, NVIDIA-Werte aus dem Grafiktreiber, Temperaturen, Lüfter und Spannungen aus AIDA64."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <CheckBox x:Name="PanelDisplayCheck" Content="Panel auf dem Zweitdisplay anzeigen" Margin="0,0,0,8" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="190" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="Monitor" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="PanelMonitorCombo" Grid.Row="0" Grid.Column="1" MaxWidth="420" HorizontalAlignment="Left" MinWidth="320" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="1" Text="Panel" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="PanelPanelCombo" Grid.Row="1" Grid.Column="1" DisplayMemberPath="Name" MaxWidth="420" HorizontalAlignment="Left" MinWidth="320" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="2" Text="Sensoren abfragen alle (ms)" VerticalAlignment="Center" />
+                                    <TextBox x:Name="PanelIntervalBox" Grid.Row="2" Grid.Column="1" Width="80" HorizontalAlignment="Left" Margin="0,0,0,6" ToolTip="250–10000, Standard 1000" />
+                                    <TextBlock Grid.Row="3" Text="Bilder pro Sekunde" VerticalAlignment="Center" />
+                                    <TextBox x:Name="PanelFpsBox" Grid.Row="3" Grid.Column="1" Width="80" HorizontalAlignment="Left" ToolTip="1–60, das 5&quot;-Display schafft 25" />
+                                </Grid>
+                                <CheckBox x:Name="PanelAidaCheck" Content="Werte von AIDA64 lesen (gemeinsamer Speicher)" Margin="0,10,0,4" />
+                                <CheckBox x:Name="PanelNvidiaCheck" Content="NVIDIA-Grafikkarten abfragen (nvml.dll aus dem Treiber)" Margin="0,0,0,4" />
+                                <CheckBox x:Name="PanelTopmostCheck" Content="Panel immer im Vordergrund" Margin="0,0,0,8" />
+                                <TextBlock x:Name="PanelStatusText" TextWrapping="Wrap" Margin="0,4,0,8" />
+                                <Button Content="📟  Sensor-Panel-Editor öffnen …" HorizontalAlignment="Left" Click="OnSensorPanelEditorClick" />
+                                <TextBlock Text="AIDA64: Datei → Einstellungen → Hardwareüberwachung → Externe Programme → „Gemeinsamen Speicher aktivieren“ einschalten und die gewünschten Werte anhaken. AetherRGB liest nur und schickt nichts nach außen. „Automatisch“ wählt nie den Hauptmonitor, sondern einen weiteren Monitor, bevorzugt mit der Auflösung des Panels."
                                            Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,8,0,0" />
                             </StackPanel>
                         </Border>

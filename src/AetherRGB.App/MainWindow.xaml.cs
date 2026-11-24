@@ -12,6 +12,9 @@ using Forms = System.Windows.Forms;
 using AetherRGB.Api;
 using AetherRGB.Core.Chroma;
 using AetherRGB.Core.Screen;
+using AetherRGB.Core.Panels;
+using AetherRGB.Core.Sensors;
+using AetherRGB.App.Panels;
 using AetherRGB.Core.Config;
 using AetherRGB.Core.Devices;
 using AetherRGB.Core.Diagnostics;
@@ -46,6 +49,7 @@ public partial class MainWindow : Window
     private readonly ScreenProfileStore _screenProfiles = new();
     private ScreenCaptureService? _screenCapture;
     private ScreenRegionEditorWindow? _screenEditor;
+    private SensorPanelService? _sensorPanels;
     private readonly System.Windows.Threading.DispatcherTimer _screenStatusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private ChromaBridgeListener? _chromaBridge;
     private MsiMysticLightDeviceProvider? _msiProvider;
@@ -97,6 +101,7 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("Eigene Effekte konnten nicht geladen werden: " + ExceptionText.Describe(ex), LogLevel.Warning); }
 
         InitializeScreenSync();
+        InitializeSensorPanels();
 
         EffectsPanel.LogMessage += Log;
         EffectsPanel.AddWledDevicesAsync = AddWledDevicesAsync;
@@ -130,6 +135,7 @@ public partial class MainWindow : Window
                 Log("Minimiert gestartet (Autostart) — Fenster über das Tray-Symbol neben der Uhr öffnen.");
             }
             ApplyAutostart();
+            _sensorPanels?.Apply();
 
             try
             {
@@ -408,6 +414,7 @@ public partial class MainWindow : Window
         ChromaEnabledCheck.IsChecked = _config.RazerChroma.Enabled;
         UpdateChromaStatus();
         LoadScreenSettingsIntoUi();
+        LoadPanelSettingsIntoUi();
 
         _wledRows.Clear();
         _wledRows.AddRange(_config.WledInstances.Select(w => new WledRow { Name = w.Name, Host = w.Host }));
@@ -472,6 +479,7 @@ public partial class MainWindow : Window
         _config.WledInstances = _wledRows.Select(r => new WledInstanceConfig { Name = r.Name, Host = r.Host }).ToList();
         _config.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
         SaveScreenSettingsFromUi();
+        SavePanelSettingsFromUi();
         bool chromaChanged = _config.RazerChroma.Enabled != (ChromaEnabledCheck.IsChecked == true);
         _config.RazerChroma.Enabled = ChromaEnabledCheck.IsChecked == true;
 
@@ -480,9 +488,96 @@ public partial class MainWindow : Window
         if (chromaChanged) ApplyChroma();
         ApplyScreenProfiles();
         _screenCapture?.Reconfigure();
+        _sensorPanels?.Apply();
         if (_config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk && OfferElevatedRestart()) return;
         Log("Einstellungen gespeichert. Provider werden neu aufgebaut …");
         await RebuildProvidersAndReconnectAsync();
+    }
+
+    // ===================== Sensor-Panel (Zweitdisplay, AIDA64) =====================
+
+    private void InitializeSensorPanels()
+    {
+        try
+        {
+            _sensorPanels = new SensorPanelService(() => _config.SensorPanel) { SaveConfig = () => _config.Save() };
+            _sensorPanels.LogMessage += Log;
+            _sensorPanels.Store.Changed += () => Dispatcher.BeginInvoke(ReloadPanelPanelCombo);
+            _sensorPanels.StatusChanged += () => Dispatcher.BeginInvoke(() =>
+            {
+                if (_sensorPanels is null) return;
+                PanelDisplayCheck.IsChecked = _config.SensorPanel.DisplayEnabled;
+                PanelStatusText.Text = _sensorPanels.DisplayStatus();
+                ReloadPanelPanelCombo();
+            });
+        }
+        catch (Exception ex) { Log("Sensor-Panel konnte nicht gestartet werden: " + ExceptionText.Describe(ex), LogLevel.Error); }
+    }
+
+    private const string PanelAutoMonitor = "Automatisch (weiterer Monitor, nie der Hauptmonitor)";
+
+    private void LoadPanelSettingsIntoUi()
+    {
+        var c = _config.SensorPanel;
+        PanelDisplayCheck.IsChecked = c.DisplayEnabled;
+        PanelMonitorCombo.Items.Clear();
+        PanelMonitorCombo.Items.Add(PanelAutoMonitor);
+        object selected = PanelAutoMonitor;
+        try
+        {
+            foreach (var (device, label) in SensorPanelService.Monitors())
+            {
+                var item = new ComboBoxItem { Content = label, Tag = device };
+                PanelMonitorCombo.Items.Add(item);
+                if (string.Equals(device, c.Monitor, StringComparison.OrdinalIgnoreCase)) selected = item;
+            }
+        }
+        catch (Exception ex) { Log("Monitore konnten nicht ermittelt werden: " + ExceptionText.Describe(ex), LogLevel.Warning); }
+        if (selected is string && !string.IsNullOrEmpty(c.Monitor))
+        {
+            var missing = new ComboBoxItem { Content = c.Monitor + " (nicht angeschlossen)", Tag = c.Monitor };
+            PanelMonitorCombo.Items.Add(missing);
+            selected = missing;
+        }
+        PanelMonitorCombo.SelectedItem = selected;
+        ReloadPanelPanelCombo();
+        PanelIntervalBox.Text = c.IntervalMs.ToString(CultureInfo.CurrentCulture);
+        PanelFpsBox.Text = c.Fps.ToString(CultureInfo.CurrentCulture);
+        PanelAidaCheck.IsChecked = c.UseAida64;
+        PanelNvidiaCheck.IsChecked = c.UseNvidia;
+        PanelTopmostCheck.IsChecked = c.Topmost;
+        if (_sensorPanels is not null) PanelStatusText.Text = _sensorPanels.DisplayStatus();
+    }
+
+    private void ReloadPanelPanelCombo()
+    {
+        if (_sensorPanels is null) return;
+        var panels = _sensorPanels.Store.Panels;
+        PanelPanelCombo.ItemsSource = panels;
+        PanelPanelCombo.SelectedItem = panels.FirstOrDefault(p => p.Id == _config.SensorPanel.PanelId) ?? panels.FirstOrDefault();
+    }
+
+    private void SavePanelSettingsFromUi()
+    {
+        var c = _config.SensorPanel;
+        c.DisplayEnabled = PanelDisplayCheck.IsChecked == true;
+        c.Monitor = (PanelMonitorCombo.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+        c.PanelId = (PanelPanelCombo.SelectedItem as SensorPanelDocument)?.Id ?? c.PanelId;
+        c.IntervalMs = int.TryParse(PanelIntervalBox.Text, out var ms) ? Math.Clamp(ms, SensorHub.MinIntervalMs, SensorHub.MaxIntervalMs) : c.IntervalMs;
+        c.Fps = int.TryParse(PanelFpsBox.Text, out var fps) ? Math.Clamp(fps, 1, 60) : c.Fps;
+        c.UseAida64 = PanelAidaCheck.IsChecked == true;
+        c.UseNvidia = PanelNvidiaCheck.IsChecked == true;
+        c.Topmost = PanelTopmostCheck.IsChecked == true;
+    }
+
+    private void OnSensorPanelEditorClick(object sender, RoutedEventArgs e)
+    {
+        if (_sensorPanels is null)
+        {
+            MessageBox.Show(this, "Das Sensor-Panel konnte nicht gestartet werden — Details stehen im Log.", "Sensor-Panel", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        _sensorPanels.OpenEditor(this);
     }
 
     // ===================== Bildschirm-Sync =====================
@@ -513,7 +608,9 @@ public partial class MainWindow : Window
 
         _screenStatusTimer.Tick += (_, _) =>
         {
-            if (PageSettings.Visibility == Visibility.Visible) ScreenStatusText.Text = ScreenHub.Shared.Status;
+            if (PageSettings.Visibility != Visibility.Visible) return;
+            ScreenStatusText.Text = ScreenHub.Shared.Status;
+            if (_sensorPanels is not null) PanelStatusText.Text = _sensorPanels.DisplayStatus() + "\n" + _sensorPanels.SourceStatus();
         };
         _screenStatusTimer.Start();
     }
@@ -1108,6 +1205,7 @@ public partial class MainWindow : Window
         _engine.Dispose();
         _screenStatusTimer.Stop();
         _screenCapture?.Dispose();
+        _sensorPanels?.Dispose();
         _ = _api?.StopAsync();
         _chromaBridge?.Dispose();
         _ = _chromaRest?.StopAsync();

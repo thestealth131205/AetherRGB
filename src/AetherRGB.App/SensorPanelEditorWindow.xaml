@@ -1,0 +1,158 @@
+<Window x:Class="AetherRGB.App.Panels.SensorPanelEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AetherRGB — Sensor-Panel-Editor" Width="1560" Height="920" MinWidth="1200" MinHeight="720"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        Background="{StaticResource BrushBackground}" Foreground="{StaticResource BrushText}" FontFamily="Segoe UI"
+        PreviewKeyDown="OnPreviewKeyDown">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="370" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ==== Werkzeugleiste ==== -->
+        <WrapPanel Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,10">
+            <TextBlock Text="Panel" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox x:Name="PanelCombo" Width="250" DisplayMemberPath="Name" SelectionChanged="OnPanelComboChanged" Margin="0,0,6,0" />
+            <Button Content="Neu" Margin="0,0,6,0" Click="OnNewClick" ToolTip="Leeres Panel in der aktuellen Größe" />
+            <Button Content="Kopie" Margin="0,0,6,0" Click="OnCopyClick" />
+            <Button Content="Löschen" Margin="0,0,6,0" Click="OnDeleteClick" />
+            <Button Content="Importieren …" Margin="0,0,6,0" Click="OnImportClick" />
+            <Button Content="Exportieren …" Margin="0,0,6,0" Click="OnExportClick" />
+            <Button x:Name="ResetTemplateButton" Content="Vorlage zurücksetzen" Margin="0,0,6,0" Click="OnResetTemplateClick" />
+            <Button Content="💾  Speichern" Style="{StaticResource PrimaryButton}" Margin="0,0,20,0" Click="OnSaveClick" ToolTip="Strg+S" />
+
+            <TextBlock Text="Größe" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox x:Name="SizeCombo" Width="210" Margin="0,0,6,0" SelectionChanged="OnSizePresetChanged" />
+            <TextBox x:Name="WidthBox" Width="56" Margin="0,0,4,0" VerticalContentAlignment="Center" LostFocus="OnSizeBoxCommit" KeyDown="OnSizeBoxKey" />
+            <TextBlock Text="×" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox x:Name="HeightBox" Width="56" Margin="0,0,14,0" VerticalContentAlignment="Center" LostFocus="OnSizeBoxCommit" KeyDown="OnSizeBoxKey" />
+            <TextBlock Text="Hintergrund" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ContentControl x:Name="BackgroundColorHost" Margin="0,0,6,0" VerticalAlignment="Center" />
+            <Button Content="🖼" Width="34" Margin="0,0,4,0" Click="OnBackgroundImageClick" ToolTip="Hintergrundbild wählen" />
+            <Button Content="✕" Width="30" Margin="0,0,20,0" Click="OnBackgroundImageClearClick" ToolTip="Hintergrundbild entfernen" />
+
+            <ToggleButton x:Name="LiveToggle" Content="●  Live auf dem Display" Margin="0,0,6,0" Checked="OnLiveChanged" Unchecked="OnLiveChanged"
+                          ToolTip="Das Display zeigt sofort, was du hier änderst — auch ungespeichert" />
+            <Button Content="📟  Auf dem Display verwenden" Click="OnUseOnDisplayClick" ToolTip="Speichern und dieses Panel auf dem Zweitdisplay anzeigen" />
+        </WrapPanel>
+
+        <!-- ==== Links: Elemente + Sensoren ==== -->
+        <DockPanel Grid.Row="1" Grid.Column="0" Margin="0,0,14,0">
+            <Border DockPanel.Dock="Top" Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Element hinzufügen" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <UniformGrid Columns="3">
+                        <Button Content="T  Text" Margin="0,0,4,4" Click="OnAddClick" Tag="Text" />
+                        <Button Content="#  Wert" Margin="0,0,4,4" Click="OnAddClick" Tag="Value" />
+                        <Button Content="▬  Balken" Margin="0,0,0,4" Click="OnAddClick" Tag="Bar" />
+                        <Button Content="◔  Instrument" Margin="0,0,4,4" Click="OnAddClick" Tag="Gauge" />
+                        <Button Content="📈  Verlauf" Margin="0,0,4,4" Click="OnAddClick" Tag="Graph" />
+                        <Button Content="🕒  Uhr" Margin="0,0,0,4" Click="OnAddClick" Tag="Clock" />
+                        <Button Content="✨  Animation" Margin="0,0,4,0" Click="OnAddClick" Tag="Animation" />
+                        <Button Content="🖼  Bild" Margin="0,0,4,0" Click="OnAddClick" Tag="Image" />
+                        <Button Content="▭  Rechteck" Click="OnAddClick" Tag="Box" />
+                    </UniformGrid>
+                </StackPanel>
+            </Border>
+            <Border DockPanel.Dock="Bottom" Style="{StaticResource Card}" Margin="0,8,0,0">
+                <TextBlock x:Name="SourceStatusText" TextWrapping="Wrap" FontSize="11" Style="{StaticResource MutedText}" />
+            </Border>
+            <Border Style="{StaticResource Card}" Margin="0,8,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Sensoren" FontWeight="SemiBold" Margin="0,0,0,4" />
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource MutedText}" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,6"
+                               Text="Auf die Fläche ziehen = neuer Wert. Auf ein Element ziehen oder doppelklicken = Sensor dieses Elements ersetzen." />
+                    <TextBox x:Name="SensorSearchBox" DockPanel.Dock="Top" Margin="0,0,0,6" TextChanged="OnSensorSearchChanged" ToolTip="Suchen (Name, ID, Gruppe)" />
+                    <ListBox x:Name="SensorList" Background="{StaticResource BrushPanelAlt}" BorderBrush="{StaticResource BrushBorder}" Foreground="{StaticResource BrushText}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizingWhenGrouping="True"
+                             PreviewMouseLeftButtonDown="OnSensorListMouseDown" PreviewMouseMove="OnSensorListMouseMove" MouseDoubleClick="OnSensorListDoubleClick">
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="{StaticResource BrushAccentHover}" Margin="2,8,0,2" />
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ToolTip="{Binding Id}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{Binding ValueText}" Foreground="{StaticResource BrushTextMuted}" Margin="8,0,0,0" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+        </DockPanel>
+
+        <!-- ==== Mitte: Fläche ==== -->
+        <Grid Grid.Row="1" Grid.Column="1" Margin="0,0,14,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" CornerRadius="10" Background="#050507" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" ClipToBounds="True" Padding="12">
+                <Viewbox Stretch="Uniform">
+                    <Border BorderBrush="#3A3B48" BorderThickness="1">
+                        <Grid x:Name="CanvasRoot">
+                            <ContentControl x:Name="SurfaceHost" />
+                            <Canvas x:Name="Overlay" Background="Transparent" AllowDrop="True" Focusable="True"
+                                    MouseLeftButtonDown="OnOverlayMouseDown" MouseMove="OnOverlayMouseMove" MouseLeftButtonUp="OnOverlayMouseUp"
+                                    DragOver="OnOverlayDragOver" Drop="OnOverlayDrop" />
+                        </Grid>
+                    </Border>
+                </Viewbox>
+            </Border>
+            <WrapPanel Grid.Row="1" Margin="0,8,0,0">
+                <CheckBox x:Name="SnapCheck" Content="Am Raster ausrichten" IsChecked="True" Foreground="{StaticResource BrushText}" VerticalAlignment="Center" Margin="0,0,8,0"
+                          ToolTip="Mit gedrückter Alt-Taste frei verschieben" />
+                <ComboBox x:Name="GridCombo" Width="70" Margin="0,0,16,0" SelectionChanged="OnGridChanged" />
+                <CheckBox x:Name="OutlineCheck" Content="Rahmen aller Elemente" IsChecked="True" Foreground="{StaticResource BrushText}" VerticalAlignment="Center" Margin="0,0,16,0"
+                          Checked="OnOutlineChanged" Unchecked="OnOutlineChanged" />
+                <TextBlock x:Name="CursorText" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+            </WrapPanel>
+        </Grid>
+
+        <!-- ==== Rechts: Elementliste + Eigenschaften ==== -->
+        <Grid Grid.Row="1" Grid.Column="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Style="{StaticResource Card}">
+                <StackPanel>
+                    <DockPanel Margin="0,0,0,6">
+                        <TextBlock Text="Elemente (unten → oben)" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="▲" Width="30" Margin="0,0,4,0" Click="OnItemUpClick" ToolTip="Weiter nach vorn (wird später gezeichnet)" />
+                            <Button Content="▼" Width="30" Margin="0,0,4,0" Click="OnItemDownClick" ToolTip="Weiter nach hinten" />
+                            <Button Content="⧉" Width="30" Margin="0,0,4,0" Click="OnItemDuplicateClick" ToolTip="Duplizieren (Strg+D)" />
+                            <Button Content="✕" Width="30" Click="OnItemDeleteClick" ToolTip="Löschen (Entf)" />
+                        </StackPanel>
+                    </DockPanel>
+                    <ListBox x:Name="ItemList" Height="200" SelectionChanged="OnItemSelectionChanged"
+                             Background="{StaticResource BrushPanelAlt}" BorderBrush="{StaticResource BrushBorder}" Foreground="{StaticResource BrushText}" />
+                </StackPanel>
+            </Border>
+            <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,8,0,0" Padding="0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="14,10">
+                    <StackPanel x:Name="PropertyPanel" />
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>
