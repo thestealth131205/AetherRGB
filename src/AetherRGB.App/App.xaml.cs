@@ -1,5 +1,6 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
@@ -31,6 +32,103 @@ public partial class App : Application
             new RoutedEventHandler((s, _) => UseDarkTitleBar((Window)s)));
 
         base.OnStartup(e);
+
+        if (!AcquireSingleInstance(e.Args))
+        {
+            Shutdown();
+            return;
+        }
+
+        var window = new MainWindow(startMinimized: e.Args.Contains(Autostart.MinimizedArgument, StringComparer.OrdinalIgnoreCase));
+        MainWindow = window;
+        ListenForShowRequests(window);
+        window.Show();
+    }
+
+    // ===================== Nur eine laufende Instanz =====================
+
+    /// <summary>Argument für Neustarts der App durch sich selbst (als Administrator, nach portablem Update):
+    /// die neue Instanz wartet, bis die alte sich beendet hat, statt sofort aufzugeben.</summary>
+    public const string RestartArgument = "--restart";
+
+    private const string InstanceMutexName = @"Local\AetherRGB-SingleInstance";
+    private const string ShowEventName = @"Local\AetherRGB-Show";
+    private Mutex? _instanceMutex;
+    private EventWaitHandle? _showEvent;
+
+    /// <summary>Zwei Instanzen würden sich um dieselben Geräte streiten (beim MSI SDK sogar doppelt beim
+    /// Dienst anmelden) — mit Autostart passiert ein zweiter Start schnell. Läuft schon eine, holt dieser
+    /// Start deren Fenster nach vorn und beendet sich.</summary>
+    private bool AcquireSingleInstance(string[] args)
+    {
+        bool isRestart = args.Contains(RestartArgument, StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            _instanceMutex = new Mutex(true, InstanceMutexName, out bool createdNew);
+            if (createdNew) return true;
+            try
+            {
+                if (_instanceMutex.WaitOne(isRestart ? TimeSpan.FromSeconds(15) : TimeSpan.Zero)) return true;
+            }
+            catch (AbandonedMutexException)
+            {
+                return true; // alte Instanz ist abgestürzt/beendet, ohne freizugeben — jetzt gehört er uns
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Die laufende Instanz hat Administratorrechte, diese nicht — Windows verweigert dann den Zugriff
+            // auf ihren Mutex. Heißt aber genauso: AetherRGB läuft schon.
+        }
+
+        _instanceMutex = null;
+        if (args.Contains(Autostart.MinimizedArgument, StringComparer.OrdinalIgnoreCase)) return false; // Autostart: still beenden
+
+        try
+        {
+            if (EventWaitHandle.TryOpenExisting(ShowEventName, out var showEvent))
+            {
+                using (showEvent) showEvent.Set();
+                return false;
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Siehe oben — eine Instanz ohne Adminrechte darf die mit Adminrechten nicht aufwecken.
+        }
+        MessageBox.Show("AetherRGB läuft bereits (Symbol im Infobereich der Taskleiste neben der Uhr).",
+            "AetherRGB", MessageBoxButton.OK, MessageBoxImage.Information);
+        return false;
+    }
+
+    private void ListenForShowRequests(MainWindow window)
+    {
+        try
+        {
+            _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or WaitHandleCannotBeOpenedException)
+        {
+            return; // dann bekommt ein zweiter Start eben die Meldung statt des Fensters
+        }
+        var showEvent = _showEvent;
+        new Thread(() =>
+        {
+            try
+            {
+                while (showEvent.WaitOne())
+                    Dispatcher.BeginInvoke(window.ShowFromOtherInstance);
+            }
+            catch (ObjectDisposedException) { /* App wird beendet */ }
+        }) { IsBackground = true, Name = "AetherRGB Einzelinstanz" }.Start();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        try { _instanceMutex?.ReleaseMutex(); } catch { /* gehört evtl. schon nicht mehr uns */ }
+        _instanceMutex?.Dispose();
+        _showEvent?.Dispose();
+        base.OnExit(e);
     }
 
     [DllImport("dwmapi.dll")]

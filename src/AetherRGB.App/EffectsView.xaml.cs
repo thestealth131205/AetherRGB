@@ -37,6 +37,8 @@ public partial class EffectsView : UserControl
     private CanvasEffectEngine? _engine;
     private SceneCollection _scenes = new();
     private LedShapeStore _shapes = new();
+    private CustomEffectStore? _customEffects;
+    private EffectEditorWindow? _editor;
     private EffectScene? _scene;
     private readonly List<DeviceVisual> _visuals = new();
     private DeviceVisual? _selected;
@@ -87,11 +89,13 @@ public partial class EffectsView : UserControl
         };
     }
 
-    public void Initialize(CanvasEffectEngine engine, SceneCollection scenes, LedShapeStore shapes)
+    public void Initialize(CanvasEffectEngine engine, SceneCollection scenes, LedShapeStore shapes, CustomEffectStore customEffects)
     {
         _engine = engine;
         _scenes = scenes;
         _shapes = shapes;
+        _customEffects = customEffects;
+        _scenes.AlignSynced(engine.Elapsed);
         BuildTabs();
         ShowScene(_scenes.Scenes.FirstOrDefault(s => s.Id == _scenes.ActiveSceneId) ?? _scenes.Scenes[0]);
         WarnMissingEffects();
@@ -140,6 +144,15 @@ public partial class EffectsView : UserControl
                 Text = (scene.IsRunning ? "▶ " : "⏸ ") + scene.Name,
                 VerticalAlignment = VerticalAlignment.Center
             });
+            if (scene.SyncWithOthers)
+                content.Children.Add(new TextBlock
+                {
+                    Text = "⇄",
+                    Margin = new Thickness(8, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = (Brush)FindResource("BrushAccentHover"),
+                    ToolTip = "Läuft synchron mit den anderen markierten Effekt-Fenstern"
+                });
             if (_scenes.Scenes.Count > 1)
             {
                 var close = new TextBlock
@@ -163,6 +176,63 @@ public partial class EffectsView : UserControl
             tab.Click += (_, _) => ShowScene(scene);
             SceneTabs.Children.Add(tab);
         }
+        UpdateSyncButton();
+    }
+
+    // ===================== Synchron laufende Effekt-Fenster =====================
+
+    private void UpdateSyncButton()
+    {
+        int synced = _scenes.Scenes.Count(s => s.SyncWithOthers);
+        SyncButton.Content = synced > 0 ? $"⇄  Synchron ({synced}) ▾" : "⇄  Synchron ▾";
+        SyncButton.Tag = synced > 1 ? "Active" : null;
+    }
+
+    /// <summary>Dropdown mit allen Effekt-Fenstern, je mit Haken: markierte Fenster laufen mit derselben
+    /// Effektzeit. Bleibt beim Anklicken offen, damit man mehrere Haken hintereinander setzen kann.</summary>
+    private void OnSyncButtonClick(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = SyncButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        menu.Items.Add(new MenuItem { Header = "Synchron mit den anderen markierten Effekten:", IsEnabled = false });
+        foreach (var scene in _scenes.Scenes)
+        {
+            var entry = new MenuItem
+            {
+                Header = $"{(scene.IsRunning ? "▶" : "⏸")}  {scene.Name} — {EffectCatalog.Get(scene.EffectId).Name}",
+                IsCheckable = true,
+                IsChecked = scene.SyncWithOthers,
+                StaysOpenOnClick = true
+            };
+            entry.Click += (_, _) => SetSceneSync(scene, entry.IsChecked);
+            menu.Items.Add(entry);
+        }
+        menu.Items.Add(new Separator());
+        var restart = new MenuItem
+        {
+            Header = "↺  Markierte Effekte gemeinsam neu starten",
+            IsEnabled = _scenes.Scenes.Any(s => s.SyncWithOthers),
+            ToolTip = "Alle markierten Fenster beginnen im selben Moment von vorn"
+        };
+        restart.Click += (_, _) =>
+        {
+            if (_engine is null) return;
+            int n = _scenes.RestartSynced(_engine.Elapsed);
+            LogMessage?.Invoke($"{n} synchrone Effekt-Fenster gemeinsam neu gestartet.", LogLevel.Info);
+        };
+        menu.Items.Add(restart);
+        menu.IsOpen = true;
+    }
+
+    private void SetSceneSync(EffectScene scene, bool sync)
+    {
+        if (_engine is null || scene.SyncWithOthers == sync) return;
+        _scenes.SetSync(scene, sync, _engine.Elapsed);
+        BuildTabs();
+        SaveScenes();
+        int others = _scenes.Scenes.Count(s => s.SyncWithOthers && s != scene);
+        LogMessage?.Invoke(sync
+            ? $"'{scene.Name}' läuft synchron" + (others > 0 ? $" mit {others} weiteren Effekt-Fenster(n)." : " — markiere ein weiteres Fenster, mit dem es gleich laufen soll.")
+            : $"'{scene.Name}' läuft nicht mehr synchron.", LogLevel.Info);
     }
 
     private void OnAddSceneClick(object sender, RoutedEventArgs e)
@@ -405,10 +475,42 @@ public partial class EffectsView : UserControl
 
     private static Color ToWpf(RgbColor c) => Color.FromRgb(c.R, c.G, c.B);
 
+    // ===================== Effekt-Editor =====================
+
+    /// <summary>Öffnet den Editor (nur einmal gleichzeitig, nicht modal — man soll nebenher die Effekte-Seite
+    /// sehen). Ist im aktuellen Fenster ein eigener Effekt gewählt, wird dieser geöffnet, sonst ein neuer.</summary>
+    private void OnEditorClick(object sender, RoutedEventArgs e)
+    {
+        if (_customEffects is null) return;
+        if (_editor is not null)
+        {
+            if (_editor.WindowState == WindowState.Minimized) _editor.WindowState = WindowState.Normal;
+            _editor.Activate();
+            return;
+        }
+        var openId = EffectCatalog.Get(_scene?.EffectId).IsCustom && EffectCatalog.Contains(_scene?.EffectId) ? _scene!.EffectId : null;
+        _editor = new EffectEditorWindow(_customEffects, _scenes, _shapes, openId, _scene) { Owner = Window.GetWindow(this) };
+        _editor.LogMessage += (msg, level) => LogMessage?.Invoke(msg, level);
+        _editor.UseInScene += OnEditorUseInScene;
+        _editor.Closed += (_, _) => _editor = null;
+        _editor.Show();
+    }
+
+    private void OnEditorUseInScene(EffectScene scene, string effectId)
+    {
+        scene.EffectId = effectId;
+        SaveScenes();
+        if (scene == _scene) ShowScene(scene);
+        else BuildTabs();
+        LogMessage?.Invoke($"'{scene.Name}': Effekt '{EffectCatalog.Get(effectId).Name}' (aus dem Effekt-Editor).", LogLevel.Info);
+    }
+
     private void OnPlayPauseClick(object sender, RoutedEventArgs e)
     {
         if (_scene is null) return;
         _scene.IsRunning = !_scene.IsRunning;
+        // Beim Fortsetzen wieder im Gleichschritt mit den anderen synchronen Fenstern einsteigen.
+        if (_scene.IsRunning && _engine is not null) _scenes.ResyncScene(_scene, _engine.Elapsed);
         PlayPauseButton.Content = _scene.IsRunning ? "⏸  Pausieren" : "▶  Abspielen";
         BuildTabs();
         SaveScenes();

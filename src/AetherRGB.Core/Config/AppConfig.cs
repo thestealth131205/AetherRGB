@@ -56,8 +56,9 @@ public sealed class MsiMysticLightConfig
     /// <summary>Nur für <see cref="MsiBackend.MysticLightSdk"/>: höchstens so viele Farb-Updates pro
     /// Sekunde an MSI schicken. Jeder SetLedColor-Aufruf wird zu einem USB-Schreibvorgang am
     /// Board-Controller; zu viele davon bringen ihn zum Absturz (USB trennt und verbindet neu). Bei
-    /// Problemen regelt der Provider selbst unter diesen Wert herunter.</summary>
-    public int SdkMaxUpdatesPerSecond { get; set; } = 15;
+    /// Problemen regelt der Provider selbst unter diesen Wert herunter. Standard 10 (seit 0.3.6, vorher 15):
+    /// am B550 mit 3 Anschlüssen à ~31 ms die natürliche Grenze, dort flüssig und stabil.</summary>
+    public int SdkMaxUpdatesPerSecond { get; set; } = 10;
 
     /// <summary>Nur für <see cref="MsiBackend.MysticLightSdk"/>: ARGB-Anschlüsse (JRAINBOW, PCH) LED für LED
     /// über "Direct Lighting Control" steuern. Aus = jeder Anschluss zeigt eine Mischfarbe.</summary>
@@ -85,6 +86,15 @@ public sealed class AppConfig
     public MsiMysticLightConfig MsiMysticLight { get; set; } = new();
     public bool CheckForUpdatesOnStartup { get; set; } = true;
 
+    /// <summary>Beim Anmelden an Windows minimiert (im Tray) starten. Standard an — fehlt in Dateien bis
+    /// 0.3.6, dann gilt ebenfalls an.</summary>
+    public bool StartWithWindows { get; set; } = true;
+
+    /// <summary>Stand der Konfigurationsdatei für einmalige Umstellungen beim Laden. Fehlt in Dateien bis
+    /// 0.3.5 (= 0); neue Konfigurationen und gespeicherte Dateien tragen <see cref="CurrentConfigVersion"/>.</summary>
+    public int ConfigVersion { get; set; }
+    public const int CurrentConfigVersion = 1;
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -108,6 +118,11 @@ public sealed class AppConfig
                     if (loaded.MsiMysticLight.Enabled == true && loaded.MsiMysticLight.Backend == MsiBackend.Ask)
                         loaded.MsiMysticLight.Backend = MsiBackend.DirectHid;
                     loaded.MsiMysticLight.Enabled = null;
+                    // 0.3.6: MSI-Standard von 15 auf 10 Updates/s. Nur den alten Standardwert umstellen,
+                    // einen bewusst anders gewählten Wert behalten.
+                    if (loaded.ConfigVersion < 1 && loaded.MsiMysticLight.SdkMaxUpdatesPerSecond == 15)
+                        loaded.MsiMysticLight.SdkMaxUpdatesPerSecond = 10;
+                    loaded.ConfigVersion = CurrentConfigVersion;
                     return loaded;
                 }
             }
@@ -117,7 +132,7 @@ public sealed class AppConfig
             // Defekte/unlesbare Konfiguration -> auf Default zurückfallen, nicht die App zum Absturz bringen.
             // Die "Reparieren"-Funktion (RepairService) überschreibt die Datei danach mit einer gültigen Version.
         }
-        return new AppConfig();
+        return new AppConfig { ConfigVersion = CurrentConfigVersion };
     }
 
     public void Save(string? path = null)

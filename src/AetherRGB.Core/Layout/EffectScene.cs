@@ -31,11 +31,31 @@ public sealed class EffectScene
     /// <see cref="EffectCatalog.MaxSpeedPercent"/>), pro Effekt-ID wie <see cref="EffectColors"/>.</summary>
     public Dictionary<string, int> EffectSpeeds { get; set; } = new();
 
+    /// <summary>Läuft synchron mit den anderen so markierten Fenstern: beim Einschalten, Fortsetzen und
+    /// App-Start übernimmt es deren Effektzeit, statt eine eigene Phase zu haben. Mit gleichem Tempo
+    /// bleiben die Fenster dadurch Bild für Bild gleich, mit unterschiedlichem laufen sie danach auseinander.</summary>
+    public bool SyncWithOthers { get; set; }
+
     private readonly object _effectLock = new();
     private TimeSpan _effectTime, _lastGlobal;
     private bool _clockStarted;
     private ICanvasEffect? _effect;
     private EffectDescriptor? _effectDescriptor;
+    private ICanvasEffect? _liveOverride;
+
+    /// <summary>Effekt-Editor „Live auf LEDs“: solange gesetzt, zeigt dieses Fenster (Vorschau und LEDs)
+    /// den übergebenen Effekt statt <see cref="EffectId"/>. Gespeichert wird das nie — null stellt den
+    /// gewählten Effekt wieder her. Die Instanz darf danach nicht mehr verändert werden (Engine-Thread liest).</summary>
+    public void SetLiveOverride(ICanvasEffect? effect)
+    {
+        lock (_effectLock) _liveOverride = effect;
+    }
+
+    [JsonIgnore]
+    public bool HasLiveOverride
+    {
+        get { lock (_effectLock) return _liveOverride is not null; }
+    }
 
     /// <summary>Die Farben für <see cref="EffectId"/>: gespeicherte Werte, fehlende/ungültige durch die
     /// Standardfarben des Effekts ersetzt.</summary>
@@ -99,6 +119,38 @@ public sealed class EffectScene
         }
     }
 
+    /// <summary>Effektzeit zu <paramref name="globalElapsed"/>, ohne die Uhr weiterzustellen. Liegt der
+    /// Zeitpunkt vor dem letzten Aufruf (der MSI-Sende-Thread fragt mit Vorlauf), wird zurückgerechnet.</summary>
+    private TimeSpan PeekEffectTime(TimeSpan globalElapsed)
+    {
+        lock (_effectLock)
+        {
+            if (!_clockStarted) return globalElapsed * (ResolveSpeed(EffectId) / 100.0);
+            return _effectTime + (globalElapsed - _lastGlobal) * (ResolveSpeed(EffectId) / 100.0);
+        }
+    }
+
+    /// <summary>Übernimmt die Effektzeit von <paramref name="other"/> zum Zeitpunkt <paramref name="globalElapsed"/>.</summary>
+    public void AlignClockTo(EffectScene other, TimeSpan globalElapsed)
+    {
+        if (ReferenceEquals(other, this)) return;
+        var time = other.PeekEffectTime(globalElapsed); // außerhalb der eigenen Sperre, keine verschachtelten Locks
+        SetClock(time < TimeSpan.Zero ? TimeSpan.Zero : time, globalElapsed);
+    }
+
+    /// <summary>Startet den Effekt dieses Fensters ab <paramref name="globalElapsed"/> von vorn.</summary>
+    public void RestartClock(TimeSpan globalElapsed) => SetClock(TimeSpan.Zero, globalElapsed);
+
+    private void SetClock(TimeSpan effectTime, TimeSpan globalElapsed)
+    {
+        lock (_effectLock)
+        {
+            _clockStarted = true;
+            _effectTime = effectTime;
+            _lastGlobal = globalElapsed;
+        }
+    }
+
     private IReadOnlyList<RgbColor> ResolveColors(EffectDescriptor descriptor)
     {
         EffectColors.TryGetValue(descriptor.Id, out var stored);
@@ -124,6 +176,7 @@ public sealed class EffectScene
         {
             lock (_effectLock)
             {
+                if (_liveOverride is not null) return _liveOverride;
                 // Neu erzeugen bei anderem Effekt, anderen Farben oder neu geladenem eigenem Effekt
                 // (der Katalog liefert dann einen neuen Descriptor).
                 var descriptor = EffectCatalog.Get(EffectId);
@@ -148,6 +201,45 @@ public sealed class SceneCollection
 
     public static string DefaultPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "AetherRGB", "scenes.json");
+
+    /// <summary>Taktgeber der synchronen Gruppe: bevorzugt ein laufendes markiertes Fenster außer
+    /// <paramref name="except"/>, sonst irgendein markiertes.</summary>
+    private EffectScene? SyncReference(EffectScene? except) =>
+        Scenes.FirstOrDefault(s => s.SyncWithOthers && s.IsRunning && s != except)
+        ?? Scenes.FirstOrDefault(s => s.SyncWithOthers && s != except);
+
+    /// <summary>Nimmt <paramref name="scene"/> in die synchrone Gruppe auf bzw. heraus. Beim Aufnehmen
+    /// übernimmt es die Effektzeit der Gruppe — die anderen Fenster laufen dabei ohne Sprung weiter.</summary>
+    public void SetSync(EffectScene scene, bool sync, TimeSpan globalElapsed)
+    {
+        scene.SyncWithOthers = sync;
+        if (sync) ResyncScene(scene, globalElapsed);
+    }
+
+    /// <summary>Fenster wieder auf die Zeit der Gruppe setzen (z. B. nach dem Fortsetzen) — nur wenn es
+    /// markiert ist und es noch ein anderes markiertes Fenster gibt.</summary>
+    public void ResyncScene(EffectScene scene, TimeSpan globalElapsed)
+    {
+        if (!scene.SyncWithOthers) return;
+        if (SyncReference(scene) is { } reference) scene.AlignClockTo(reference, globalElapsed);
+    }
+
+    /// <summary>Beim Start: alle markierten Fenster auf dieselbe Effektzeit bringen.</summary>
+    public void AlignSynced(TimeSpan globalElapsed)
+    {
+        var reference = SyncReference(null);
+        if (reference is null) return;
+        foreach (var scene in Scenes.Where(s => s.SyncWithOthers && s != reference))
+            scene.AlignClockTo(reference, globalElapsed);
+    }
+
+    /// <summary>Alle markierten Fenster gemeinsam von vorn starten. Anzahl der neu gestarteten Fenster.</summary>
+    public int RestartSynced(TimeSpan globalElapsed)
+    {
+        var synced = Scenes.Where(s => s.SyncWithOthers).ToList();
+        foreach (var scene in synced) scene.RestartClock(globalElapsed);
+        return synced.Count;
+    }
 
     public static SceneCollection LoadOrCreateDefault(string? path = null)
     {

@@ -21,6 +21,7 @@ SolidCompression=yes
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayIcon={app}\AetherRGB.exe
+SetupIconFile=..\src\AetherRGB.App\Assets\AetherRGB.ico
 DisableProgramGroupPage=yes
 WizardStyle=modern
 
@@ -40,3 +41,11 @@ Name: "desktopicon"; Description: "Desktop-Verknüpfung erstellen"; GroupDescrip
 
 [Run]
 Filename: "{app}\AetherRGB.exe"; Description: "AetherRGB jetzt starten"; Flags: nowait postinstall skipifsilent
+
+; Autostart wird von der App selbst angelegt (Einstellungen → „Mit Windows starten“) — beim Deinstallieren
+; beides wieder entfernen: den Run-Eintrag und die Aufgabe mit Adminrechten (nur beim Mystic Light SDK).
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "AetherRGB"; Flags: uninsdeletevalue dontcreatekey
+
+[UninstallRun]
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""AetherRGB"" /F"; Flags: runhidden; RunOnceId: "DeleteAutostartTask"

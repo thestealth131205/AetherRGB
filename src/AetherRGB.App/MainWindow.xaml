@@ -15,7 +15,11 @@
         <Border Grid.Column="0" Background="{StaticResource BrushSidebar}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Top" Margin="20,24,20,24">
-                    <TextBlock Text="AetherRGB" FontSize="20" FontWeight="Bold" Foreground="White" />
+                    <StackPanel Orientation="Horizontal">
+                        <Image Source="Assets/AetherRGB-64.png" Width="32" Height="32" Margin="0,0,10,0"
+                               RenderOptions.BitmapScalingMode="HighQuality" VerticalAlignment="Center" />
+                        <TextBlock Text="AetherRGB" FontSize="20" FontWeight="Bold" Foreground="White" VerticalAlignment="Center" />
+                    </StackPanel>
                     <TextBlock x:Name="SidebarStatusText" Text="Nicht verbunden" Style="{StaticResource MutedText}" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
 
@@ -95,6 +99,15 @@
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
                     <StackPanel>
 
+                        <!-- Start -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <CheckBox x:Name="StartWithWindowsCheck" Content="Mit Windows starten (minimiert im Infobereich)" FontWeight="SemiBold" />
+                                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,0"
+                                           Text="AetherRGB startet beim Anmelden ohne Fenster und steuert die LEDs gleich mit den gespeicherten Effekten. Öffnen per Doppelklick auf das Symbol neben der Uhr. Mit dem Mystic Light SDK richtet AetherRGB den Autostart über die Aufgabenplanung mit Administratorrechten ein, sobald es einmal als Administrator lief." />
+                            </StackPanel>
+                        </Border>
+
                         <!-- OpenRGB -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
@@ -140,7 +153,7 @@
                                         <TextBlock Text="Max. Farb-Updates pro Sekunde:" VerticalAlignment="Center" Margin="0,0,8,0" />
                                         <TextBox x:Name="MsiSdkRateBox" Width="60" />
                                     </StackPanel>
-                                    <TextBlock Text="Standard 15, höchstens 60. Ein Aufruf dauert je Anschluss ~30 ms, mit 3 Anschlüssen sind also ~10 Runden/s die Obergrenze. Meldet der MSI-Dienst Fehler oder hängt der Controller (Board-LEDs flackern, Windows meldet USB trennen/verbinden), senkt AetherRGB das Tempo automatisch und hebt es nach 30 s ohne Probleme wieder an. Kommt das oft vor, den Wert hier dauerhaft senken."
+                                    <TextBlock Text="Standard 10, höchstens 60. Ein Aufruf dauert je Anschluss ~30 ms, mit 3 Anschlüssen sind also ~10 Runden/s die Obergrenze — höhere Werte bringen dann nichts, belasten den Controller aber stärker. Meldet der MSI-Dienst Fehler oder hängt der Controller (Board-LEDs flackern, Windows meldet USB trennen/verbinden), senkt AetherRGB das Tempo automatisch und hebt es nach 30 s ohne Probleme wieder an. Kommt das oft vor, den Wert hier dauerhaft senken."
                                                Style="{StaticResource MutedText}" TextWrapping="Wrap" />
                                     <CheckBox x:Name="MsiSdkPerLedCheck" Margin="0,12,0,4"
                                               Content="ARGB-Anschlüsse LED für LED steuern (Direct Lighting Control)" />

@@ -46,6 +46,8 @@ public partial class MainWindow : Window
     private readonly List<WledRow> _wledRows = new();
     private Forms.NotifyIcon? _trayIcon;
     private bool _isExiting;
+    /// <summary>Per Autostart mit <see cref="Autostart.MinimizedArgument"/> gestartet: gleich in den Tray.</summary>
+    private readonly bool _startMinimized;
     private readonly ObservableCollection<LogEntry> _log = new();
     private const int MaxLogEntries = 3000;
     private int _logWarnings, _logErrors;
@@ -53,8 +55,16 @@ public partial class MainWindow : Window
     private static string AppVersion => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
     private static bool IsInstalled => File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
 
-    public MainWindow()
+    public MainWindow(bool startMinimized = false)
     {
+        _startMinimized = startMinimized;
+        if (startMinimized)
+        {
+            // Loaded (Geräte verbinden, Engine starten) kommt nur, wenn das Fenster gezeigt wird — also
+            // minimiert und ohne Fokus zeigen und in Loaded gleich in den Tray verstecken.
+            WindowState = WindowState.Minimized;
+            ShowActivated = false;
+        }
         InitializeComponent();
         LogList.ItemsSource = _log;
 
@@ -79,7 +89,7 @@ public partial class MainWindow : Window
 
         EffectsPanel.LogMessage += Log;
         EffectsPanel.AddWledDevicesAsync = AddWledDevicesAsync;
-        EffectsPanel.Initialize(_engine, _scenes, _shapes);
+        EffectsPanel.Initialize(_engine, _scenes, _shapes, _customEffects);
 
         LoadSettingsIntoUi();
         InitializeTrayIcon();
@@ -99,6 +109,14 @@ public partial class MainWindow : Window
 
         Loaded += async (_, _) =>
         {
+            if (_startMinimized)
+            {
+                Hide();
+                if (_trayIcon is not null) _trayIcon.Visible = true;
+                Log("Minimiert gestartet (Autostart) — Fenster über das Tray-Symbol neben der Uhr öffnen.");
+            }
+            ApplyAutostart();
+
             try
             {
                 bool msiChanged = AskMsiBackendIfNeeded();
@@ -123,6 +141,15 @@ public partial class MainWindow : Window
 
     // ===================== Taskleiste / System-Tray =====================
 
+    /// <summary>Lädt das eingebettete Logo in Tray-Größe; fällt auf das Windows-Standardsymbol zurück.</summary>
+    private static Drawing.Icon LoadTrayIcon()
+    {
+        using var stream = typeof(MainWindow).Assembly.GetManifestResourceStream("AetherRGB.ico");
+        return stream is null
+            ? Drawing.SystemIcons.Application
+            : new Drawing.Icon(stream, Forms.SystemInformation.SmallIconSize);
+    }
+
     private void InitializeTrayIcon()
     {
         try
@@ -134,7 +161,7 @@ public partial class MainWindow : Window
 
             _trayIcon = new Forms.NotifyIcon
             {
-                Icon = Drawing.SystemIcons.Application,
+                Icon = LoadTrayIcon(),
                 Text = "AetherRGB",
                 Visible = false,
                 ContextMenuStrip = menu
@@ -145,6 +172,16 @@ public partial class MainWindow : Window
         {
             Log("Tray-Symbol konnte nicht erstellt werden: " + ExceptionText.Describe(ex), LogLevel.Warning);
         }
+    }
+
+    /// <summary>Ein zweiter Start von AetherRGB (z. B. über das Startmenü, während die App im Tray läuft)
+    /// holt dieses Fenster nach vorn.</summary>
+    public void ShowFromOtherInstance()
+    {
+        if (_isExiting) return;
+        RestoreFromTray();
+        Topmost = true;  // Windows lässt Hintergrundprozesse sonst nicht in den Vordergrund
+        Topmost = false;
     }
 
     private void RestoreFromTray()
@@ -316,6 +353,8 @@ public partial class MainWindow : Window
 
     private void LoadSettingsIntoUi()
     {
+        StartWithWindowsCheck.IsChecked = _config.StartWithWindows;
+
         OpenRgbEnabledCheck.IsChecked = _config.OpenRgb.Enabled;
         OpenRgbHostBox.Text = _config.OpenRgb.Host;
         OpenRgbPortBox.Text = _config.OpenRgb.Port.ToString();
@@ -399,8 +438,10 @@ public partial class MainWindow : Window
         _config.LocalApi.Port = int.TryParse(LocalApiPortBox.Text, out var apiPort) ? apiPort : 34533;
 
         _config.WledInstances = _wledRows.Select(r => new WledInstanceConfig { Name = r.Name, Host = r.Host }).ToList();
+        _config.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
 
         _config.Save();
+        ApplyAutostart();
         if (_config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk && OfferElevatedRestart()) return;
         Log("Einstellungen gespeichert. Provider werden neu aufgebaut …");
         await RebuildProvidersAndReconnectAsync();
@@ -413,6 +454,7 @@ public partial class MainWindow : Window
     private bool AskMsiBackendIfNeeded()
     {
         if (_msiBoard is null || _config.MsiMysticLight.Backend != MsiBackend.Ask) return false;
+        if (!IsVisible) RestoreFromTray(); // minimiert gestartet: die Frage braucht ein sichtbares Hauptfenster
 
         var dialog = new MsiBackendWindow(_msiBoard, _config.MsiMysticLight.Backend, _config.MsiMysticLight.SdkDllPath) { Owner = this };
         if (dialog.ShowDialog() != true || dialog.Result is not { } choice)
@@ -448,7 +490,7 @@ public partial class MainWindow : Window
 
         try
         {
-            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, Verb = "runas" });
+            Process.Start(new ProcessStartInfo(exe, RestartArguments()) { UseShellExecute = true, Verb = "runas" });
         }
         catch (System.ComponentModel.Win32Exception)
         {
@@ -458,6 +500,34 @@ public partial class MainWindow : Window
         }
         ExitFromTray();
         return true;
+    }
+
+    /// <summary>Argumente für einen Neustart durch die App selbst: die neue Instanz wartet auf das Ende
+    /// dieser, und ein Start aus dem Tray bleibt im Tray.</summary>
+    private string RestartArguments() =>
+        App.RestartArgument + (_startMinimized && !IsVisible ? " " + Autostart.MinimizedArgument : "");
+
+    // ===================== Autostart mit Windows =====================
+
+    /// <summary>Autostart laut Einstellung einrichten/entfernen — bei jedem Start, damit der Eintrag nach
+    /// Verschieben der portablen EXE oder Wechsel auf das MSI SDK (braucht Adminrechte) wieder stimmt.</summary>
+    private void ApplyAutostart()
+    {
+        bool enabled = _config.StartWithWindows;
+        bool needsAdmin = _config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk;
+        bool elevated = MsiBoardDetector.IsElevated();
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var (level, message) = Autostart.Apply(enabled, needsAdmin, elevated);
+                Log(message, level);
+            }
+            catch (Exception ex)
+            {
+                Log("Autostart konnte nicht eingerichtet werden: " + ExceptionText.Describe(ex), LogLevel.Warning);
+            }
+        });
     }
 
     private MsiBackend SelectedMsiBackend() =>
@@ -674,7 +744,7 @@ public partial class MainWindow : Window
         }
 
         Log($"Version {version} installiert, starte neu …");
-        Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo(exePath, RestartArguments()) { UseShellExecute = true });
         ExitFromTray();
     }
 

@@ -9,11 +9,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AetherRGB.App</RootNamespace>
     <AssemblyName>AetherRGB</AssemblyName>
-    <Version>0.3.5</Version>
-    <AssemblyVersion>0.3.5.0</AssemblyVersion>
-    <FileVersion>0.3.5.0</FileVersion>
+    <Version>0.3.6</Version>
+    <AssemblyVersion>0.3.6.0</AssemblyVersion>
+    <FileVersion>0.3.6.0</FileVersion>
     <Product>AetherRGB</Product>
     <Company>thestealth131205</Company>
+    <!-- Logo (erzeugt von tools/make_icon.py): EXE-/Taskleisten-Symbol; WPF-Fenster ohne eigenes
+         Icon übernehmen es automatisch. -->
+    <ApplicationIcon>Assets\AetherRGB.ico</ApplicationIcon>
     <!-- Bewusst KEIN InvariantGlobalization: WPF braucht echte Kulturdaten für die Text-Engine
          (MS.Internal.FontCache.MajorLanguages erzeugt CultureInfo("en") usw.) — im
          Invariant-Modus wirft das beim ersten TextBlock-Measure eine CultureNotFoundException
@@ -27,6 +30,12 @@
          Aliase (Forms./Drawing.) in MainWindow.xaml.cs funktionieren weiterhin ohne die globalen Usings. -->
     <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tray-Symbol (NotifyIcon braucht ein System.Drawing.Icon) und Logo in der Seitenleiste -->
+    <EmbeddedResource Include="Assets\AetherRGB.ico" LogicalName="AetherRGB.ico" />
+    <Resource Include="Assets\AetherRGB-64.png" />
   </ItemGroup>
 
   <ItemGroup>

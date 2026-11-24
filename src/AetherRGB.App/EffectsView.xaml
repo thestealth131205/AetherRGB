@@ -21,6 +21,9 @@
             <DockPanel Grid.Row="0" Margin="0,0,0,10">
                 <Button x:Name="AddSceneButton" DockPanel.Dock="Left" Content="+" Style="{StaticResource TabButton}"
                         FontSize="16" Padding="12,4" ToolTip="Neues Effekt-Fenster" Click="OnAddSceneClick" Margin="0" />
+                <!-- Dropdown: welche Effekt-Fenster synchron laufen -->
+                <Button x:Name="SyncButton" DockPanel.Dock="Right" Style="{StaticResource TabButton}" Content="⇄  Synchron ▾"
+                        ToolTip="Effekt-Fenster wählen, die synchron miteinander laufen sollen" Click="OnSyncButtonClick" />
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="SceneTabs" Orientation="Horizontal" />
                 </ScrollViewer>
@@ -40,7 +43,11 @@
                 <TextBox x:Name="SceneNameBox" Grid.Column="1" Margin="0,0,16,0" TextChanged="OnSceneNameChanged" />
                 <TextBlock Grid.Column="2" Text="Effekt" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,8,0" />
                 <ComboBox x:Name="EffectCombo" Grid.Column="3" DisplayMemberPath="Name" Margin="0,0,10,0" SelectionChanged="OnEffectChanged" />
-                <Button x:Name="PlayPauseButton" Grid.Column="4" Style="{StaticResource PrimaryButton}" Content="⏸  Pausieren" Click="OnPlayPauseClick" />
+                <StackPanel Grid.Column="4" Orientation="Horizontal">
+                    <Button x:Name="PlayPauseButton" Style="{StaticResource PrimaryButton}" Content="⏸  Pausieren" Click="OnPlayPauseClick" />
+                    <Button x:Name="EditorButton" Content="🎨  Effekt-Editor" Margin="8,0,0,0" Click="OnEditorClick"
+                            ToolTip="Eigene Effekte malen — ist hier ein eigener Effekt gewählt, wird er zum Bearbeiten geöffnet" />
+                </StackPanel>
                 <!-- Farbwahl des Effekts — wird je nach Effekt in BuildEffectColorControls befüllt -->
                 <WrapPanel x:Name="EffectColorPanel" Grid.Column="5" Margin="16,0,0,0" VerticalAlignment="Center" />
             </Grid>

@@ -25,7 +25,7 @@ namespace AetherRGB.Providers.MsiMysticLight;
 /// Jeder SetLedColor-Aufruf wird beim Dienst zu einem USB-Schreibvorgang am Board-Controller. Mit
 /// Effekt-Bildrate (~30 Runden/s × alle Bereiche) stürzt der Controller ab und meldet sich am USB neu
 /// an (Flackern, Windows-Ton für USB trennen/verbinden, MSI Center setzt danach seinen Stil zurück).
-/// Daher sind die Senderunden auf <see cref="MaxUpdatesPerSecond"/> gedrosselt (Standard 15). Meldet der Dienst
+/// Daher sind die Senderunden auf <see cref="MaxUpdatesPerSecond"/> gedrosselt (Standard 10 — am B550 mit 3 Anschlüssen ohnehin die Grenze und dort stabil). Meldet der Dienst
 /// Fehler, setzt er den Stil zurück oder hängen Aufrufe, regelt der Sende-Thread das Tempo selbst herunter und
 /// tastet sich nach einer stabilen Phase wieder an den eingestellten Wert heran.
 ///
@@ -43,7 +43,7 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
     public string? DllPath { get; init; }
 
     /// <summary>Höchstens so viele Senderunden (alle geänderten Bereiche) pro Sekunde.</summary>
-    public int MaxUpdatesPerSecond { get; init; } = 15;
+    public int MaxUpdatesPerSecond { get; init; } = 10;
 
     /// <summary>Bereiche mit mehreren LEDs einzeln ansteuern (Direct Lighting Control).</summary>
     public bool PerLed { get; init; } = true;
