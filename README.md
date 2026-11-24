@@ -27,8 +27,10 @@ oder Telemetrie.
     MSI Center mit Mystic-Light-Modul läuft, Drittanbieter-Steuerung ist in Mystic Light erlaubt,
     AetherRGB läuft als Administrator. Die `MysticLight_SDK_x64.dll` wird wegen der MSI-Lizenz
     **nicht mitgeliefert**: Lade das SDK bei MSI herunter und lege die DLL in den Programmordner,
-    nach `%APPDATA%\AetherRGB` oder gib den Pfad in den Einstellungen an. Das SDK steuert ganze
-    LED-Bereiche, keine einzelnen Pixel, und ist bei schnellen Effekten in der Bildrate begrenzt.
+    nach `%APPDATA%\AetherRGB` oder gib den Pfad in den Einstellungen an. ARGB-Anschlüsse
+    (PCH, JRAINBOW bis 100 LEDs) werden über „Direct Lighting Control“ LED für LED gesteuert,
+    12-V-RGB (JRGB) mit einer Farbe. Die Bildrate ist begrenzt (Standard 15 Updates/s, einstellbar, bei Problemen automatisch niedriger),
+    weil zu schnelle Aufrufe den Board-Controller zum Absturz bringen.
   - **Eigene Variante (direkt per USB/HID)**: ohne MSI Center und ohne DLL, experimentell
     (vorher MSI Center beenden und den sicheren Einzel-LED-Test machen).
 

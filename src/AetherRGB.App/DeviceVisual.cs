@@ -8,8 +8,8 @@ using AetherRGB.Core.Layout;
 namespace AetherRGB.App;
 
 /// <summary>Ein auf der Effekt-Fläche platziertes Gerät (genauer: eine Zone): dunkle Kopfzeile mit Namen,
-/// darunter die LEDs in ihrer festgelegten <see cref="LedShape"/> als halbtransparente Kacheln, durch die
-/// der Effekt durchscheint (SignalRGB-Stil). Kapselt Verschieben, Skalieren (Ecke) und Drehen (Griff oben) —
+/// darunter die LEDs in ihrer festgelegten <see cref="LedShape"/> als Kacheln, die per <see cref="SetLedColors"/>
+/// genau die Farbe zeigen, die an die echte LED geht (die Effektfarbe unter ihrer Position). Kapselt Verschieben, Skalieren (Ecke) und Drehen (Griff oben) —
 /// die Resize-Mathematik arbeitet im lokalen, unrotierten Koordinatensystem des Rechtecks.</summary>
 public sealed class DeviceVisual
 {
@@ -35,6 +35,7 @@ public sealed class DeviceVisual
     private readonly RotateTransform _rotateTransform;
     private LedShape _shape;
     private readonly List<Border> _leds = new();
+    private readonly List<SolidColorBrush> _ledBrushes = new();
 
     private static readonly Brush LedFill = new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xFF, 0xFF));
     private static readonly Brush LedStroke = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
@@ -171,18 +172,33 @@ public sealed class DeviceVisual
     {
         _ledCanvas.Children.Clear();
         _leds.Clear();
+        _ledBrushes.Clear();
         int count = _shape.ComputeNormalizedPositions().Count;
         for (int i = 0; i < count; i++)
         {
+            var brush = new SolidColorBrush(((SolidColorBrush)LedFill).Color);
+            _ledBrushes.Add(brush);
             var led = new Border
             {
-                Background = LedFill,
+                Background = brush,
                 BorderBrush = LedStroke,
                 BorderThickness = new Thickness(1),
                 ToolTip = $"LED {i + 1}"
             };
             _leds.Add(led);
             _ledCanvas.Children.Add(led);
+        }
+    }
+
+    /// <summary>Färbt die LED-Kacheln mit den Farben, die gerade an die LEDs gesendet werden
+    /// (LED i = colors[i]); <paramref name="factor"/> dimmt nur die Anzeige (pausierte Fenster).</summary>
+    public void SetLedColors(IReadOnlyList<AetherRGB.Core.Devices.RgbColor> colors, double factor)
+    {
+        for (int i = 0; i < _ledBrushes.Count && i < colors.Count; i++)
+        {
+            var c = colors[i];
+            var color = Color.FromRgb((byte)(c.R * factor), (byte)(c.G * factor), (byte)(c.B * factor));
+            if (_ledBrushes[i].Color != color) _ledBrushes[i].Color = color;
         }
     }
 

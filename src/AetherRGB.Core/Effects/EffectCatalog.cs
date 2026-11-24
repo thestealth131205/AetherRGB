@@ -7,12 +7,13 @@ public sealed record EffectColorSlot(string Label, RgbColor Default);
 
 /// <summary>Ein auswählbarer Effekt — die Szene speichert nur die <see cref="Id"/> und die gewählten
 /// Farben, die Instanz wird bei Bedarf neu erzeugt. <see cref="Create"/> bekommt genau so viele Farben,
-/// wie <see cref="ColorSlots"/> Einträge hat.</summary>
+/// wie <see cref="ColorSlots"/> Einträge hat. <see cref="IsAnimated"/> = Effekt bewegt sich und bekommt
+/// einen Geschwindigkeitsregler.</summary>
 public sealed record EffectDescriptor(string Id, string Name, IReadOnlyList<EffectColorSlot> ColorSlots,
-    Func<IReadOnlyList<RgbColor>, ICanvasEffect> Create)
+    Func<IReadOnlyList<RgbColor>, ICanvasEffect> Create, bool IsAnimated = true)
 {
-    public EffectDescriptor(string id, string name, Func<ICanvasEffect> create)
-        : this(id, name, Array.Empty<EffectColorSlot>(), _ => create()) { }
+    public EffectDescriptor(string id, string name, Func<ICanvasEffect> create, bool isAnimated = true)
+        : this(id, name, Array.Empty<EffectColorSlot>(), _ => create(), isAnimated) { }
 
     public IReadOnlyList<RgbColor> DefaultColors => ColorSlots.Select(s => s.Default).ToArray();
 
@@ -31,10 +32,13 @@ public static class EffectCatalog
         new EffectDescriptor("radial-pulse", "Radialer Puls",
             new[] { new EffectColorSlot("Farbe", RgbColor.FromHex("#10B981")) },
             c => new CanvasRadialPulseEffect(c[0])),
-        new EffectDescriptor("static-red", "Statisch Rot", () => new CanvasStaticColorEffect(RgbColor.FromHex("#FF0000"))),
-        new EffectDescriptor("static-blue", "Statisch Blau", () => new CanvasStaticColorEffect(RgbColor.FromHex("#0000FF"))),
-        new EffectDescriptor("static-white", "Statisch Weiß", () => new CanvasStaticColorEffect(RgbColor.White)),
+        new EffectDescriptor("static-red", "Statisch Rot", () => new CanvasStaticColorEffect(RgbColor.FromHex("#FF0000")), isAnimated: false),
+        new EffectDescriptor("static-blue", "Statisch Blau", () => new CanvasStaticColorEffect(RgbColor.FromHex("#0000FF")), isAnimated: false),
+        new EffectDescriptor("static-white", "Statisch Weiß", () => new CanvasStaticColorEffect(RgbColor.White), isAnimated: false),
     };
+
+    /// <summary>Geschwindigkeit in Prozent der Standardgeschwindigkeit.</summary>
+    public const int MinSpeedPercent = 10, MaxSpeedPercent = 500, DefaultSpeedPercent = 100;
 
     public static EffectDescriptor Get(string? id) => All.FirstOrDefault(e => e.Id == id) ?? All[0];
 }

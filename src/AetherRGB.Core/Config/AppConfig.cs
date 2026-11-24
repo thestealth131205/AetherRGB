@@ -53,6 +53,16 @@ public sealed class MsiMysticLightConfig
     /// %APPDATA%\AetherRGB suchen. Die DLL wird nicht mitgeliefert (MSI-Lizenz).</summary>
     public string SdkDllPath { get; set; } = "";
 
+    /// <summary>Nur für <see cref="MsiBackend.MysticLightSdk"/>: höchstens so viele Farb-Updates pro
+    /// Sekunde an MSI schicken. Jeder SetLedColor-Aufruf wird zu einem USB-Schreibvorgang am
+    /// Board-Controller; zu viele davon bringen ihn zum Absturz (USB trennt und verbindet neu). Bei
+    /// Problemen regelt der Provider selbst unter diesen Wert herunter.</summary>
+    public int SdkMaxUpdatesPerSecond { get; set; } = 15;
+
+    /// <summary>Nur für <see cref="MsiBackend.MysticLightSdk"/>: ARGB-Anschlüsse (JRAINBOW, PCH) LED für LED
+    /// über "Direct Lighting Control" steuern. Aus = jeder Anschluss zeigt eine Mischfarbe.</summary>
+    public bool SdkPerLed { get; set; } = true;
+
     /// <summary>Nur für <see cref="MsiBackend.DirectHid"/>: LED-Anzahl der Sammelzone.</summary>
     public int LedCountOverride { get; set; } = 1;
 

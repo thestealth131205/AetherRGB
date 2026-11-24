@@ -45,6 +45,8 @@ public partial class EffectsView : UserControl
     private readonly WriteableBitmap _preview = new(PreviewW, PreviewH, 96, 96, PixelFormats.Bgra32, null);
     private readonly int[] _previewPixels = new int[PreviewW * PreviewH];
     private readonly DispatcherTimer _previewTimer = new() { Interval = TimeSpan.FromMilliseconds(33) };
+    // Beim Ziehen des Tempo-Reglers nicht bei jedem Wert scenes.json schreiben.
+    private readonly DispatcherTimer _saveDebounce = new() { Interval = TimeSpan.FromMilliseconds(500) };
 
     private bool _suppressUiEvents;
     private Point _dragStart;
@@ -61,6 +63,7 @@ public partial class EffectsView : UserControl
         InitializeComponent();
 
         PreviewImage.Source = _preview;
+        _saveDebounce.Tick += (_, _) => { _saveDebounce.Stop(); SaveScenes(); };
         GridOverlay.Fill = CreateGridBrush();
         EffectCombo.ItemsSource = EffectCatalog.All;
 
@@ -75,6 +78,8 @@ public partial class EffectsView : UserControl
         IsVisibleChanged += (_, _) =>
         {
             if (IsVisible) _previewTimer.Start(); else _previewTimer.Stop();
+            // Noch nicht gespeichertes Tempo beim Verlassen der Seite sofort schreiben.
+            if (!IsVisible && _saveDebounce.IsEnabled) { _saveDebounce.Stop(); SaveScenes(); }
         };
     }
 
@@ -253,10 +258,10 @@ public partial class EffectsView : UserControl
         LogMessage?.Invoke($"'{_scene.Name}': Effekt '{effect.Name}'.", LogLevel.Info);
     }
 
-    // ===================== Effekt-Farben =====================
+    // ===================== Effekt-Farben und -Tempo =====================
 
     /// <summary>Pro wählbarer Farbe des aktuellen Effekts: Beschriftung, Farbfeld (Klick = Farbdialog)
-    /// und Hex-Feld. Effekte ohne Farbwahl (z. B. Regenbogen) zeigen nichts.</summary>
+    /// und Hex-Feld; bei bewegten Effekten zusätzlich der Tempo-Regler. Statische Effekte zeigen nichts.</summary>
     private void BuildEffectColorControls()
     {
         EffectColorPanel.Children.Clear();
@@ -326,6 +331,46 @@ public partial class EffectsView : UserControl
             EffectColorPanel.Children.Add(swatch);
             EffectColorPanel.Children.Add(hexBox);
         }
+
+        if (descriptor.IsAnimated) AddSpeedControl(scene, descriptor);
+    }
+
+    private void AddSpeedControl(EffectScene scene, EffectDescriptor descriptor)
+    {
+        var label = new TextBlock
+        {
+            Text = "Tempo",
+            Style = (Style)FindResource("MutedText"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(descriptor.ColorSlots.Count == 0 ? 0 : 18, 0, 8, 0)
+        };
+        var slider = new Slider
+        {
+            Minimum = EffectCatalog.MinSpeedPercent, Maximum = EffectCatalog.MaxSpeedPercent,
+            Value = scene.GetEffectSpeed(), Width = 160, VerticalAlignment = VerticalAlignment.Center,
+            SmallChange = 5, LargeChange = 25, IsSnapToTickEnabled = true, TickFrequency = 5,
+            ToolTip = "Geschwindigkeit des Effekts — Doppelklick setzt auf 100 % zurück"
+        };
+        var valueText = new TextBlock
+        {
+            Text = $"{scene.GetEffectSpeed()} %", Width = 48, VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0)
+        };
+
+        slider.ValueChanged += (_, e) =>
+        {
+            if (_scene != scene || scene.EffectId != descriptor.Id) return;
+            int percent = (int)Math.Round(e.NewValue);
+            scene.SetEffectSpeed(percent);
+            valueText.Text = $"{percent} %";
+            _saveDebounce.Stop();
+            _saveDebounce.Start();
+        };
+        slider.MouseDoubleClick += (_, _) => slider.Value = EffectCatalog.DefaultSpeedPercent;
+
+        EffectColorPanel.Children.Add(label);
+        EffectColorPanel.Children.Add(slider);
+        EffectColorPanel.Children.Add(valueText);
     }
 
     private static Color ToWpf(RgbColor c) => Color.FromRgb(c.R, c.G, c.B);
@@ -654,7 +699,7 @@ public partial class EffectsView : UserControl
     {
         if (_scene is null || _engine is null) return;
         var effect = _scene.Effect;
-        var elapsed = _engine.Elapsed;
+        var elapsed = _scene.GetEffectTime(_engine.Elapsed);
         // Pausierte Fenster gedimmt anzeigen, damit sofort sichtbar ist, was gerade wirklich an die LEDs geht.
         double factor = Math.Clamp(_scene.Brightness, 0, 100) / 100.0 * (_scene.IsRunning ? 1.0 : 0.35);
         double sx = _scene.CanvasWidth / PreviewW, sy = _scene.CanvasHeight / PreviewH;
@@ -667,6 +712,15 @@ public partial class EffectsView : UserControl
                                                      | ((int)(c.R * factor) << 16) | ((int)(c.G * factor) << 8) | (int)(c.B * factor);
             }
         _preview.WritePixels(new Int32Rect(0, 0, PreviewW, PreviewH), _previewPixels, PreviewW * 4, 0);
+
+        // Jede LED-Kachel zeigt dieselbe Farbe, die die Engine an die echte LED schickt: die Effektfarbe
+        // genau unter ihrer Position (inkl. Helligkeit). Pausiert nur zur Anzeige gedimmt.
+        double ledFactor = _scene.IsRunning ? 1.0 : 0.35;
+        foreach (var visual in _visuals)
+        {
+            var item = visual.Item;
+            visual.SetLedColors(CanvasEffectEngine.RenderItem(_scene, item, _shapes.Get(item.DeviceId, item.ZoneIndex, item.LedCount), _engine.Elapsed), ledFactor);
+        }
     }
 
     /// <summary>Feines dunkles Raster über der Vorschau, wie im SignalRGB-Layout.</summary>

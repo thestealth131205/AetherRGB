@@ -208,7 +208,9 @@ public partial class MainWindow : Window
             case MsiBackend.MysticLightSdk:
                 var sdkProvider = new MsiMysticLightSdkDeviceProvider
                 {
-                    DllPath = string.IsNullOrWhiteSpace(_config.MsiMysticLight.SdkDllPath) ? null : _config.MsiMysticLight.SdkDllPath
+                    DllPath = string.IsNullOrWhiteSpace(_config.MsiMysticLight.SdkDllPath) ? null : _config.MsiMysticLight.SdkDllPath,
+                    MaxUpdatesPerSecond = _config.MsiMysticLight.SdkMaxUpdatesPerSecond,
+                    PerLed = _config.MsiMysticLight.SdkPerLed
                 };
                 _registry.Register(sdkProvider);
                 break;
@@ -314,6 +316,8 @@ public partial class MainWindow : Window
             _ => MsiBackendOff
         }).IsChecked = true;
         MsiSdkPathBox.Text = _config.MsiMysticLight.SdkDllPath;
+        MsiSdkRateBox.Text = _config.MsiMysticLight.SdkMaxUpdatesPerSecond.ToString();
+        MsiSdkPerLedCheck.IsChecked = _config.MsiMysticLight.SdkPerLed;
         MsiLedCountBox.Text = _config.MsiMysticLight.LedCountOverride.ToString();
         UpdateMsiPanels();
 
@@ -365,6 +369,10 @@ public partial class MainWindow : Window
 
         _config.MsiMysticLight.Backend = SelectedMsiBackend();
         _config.MsiMysticLight.SdkDllPath = MsiSdkPathBox.Text.Trim();
+        _config.MsiMysticLight.SdkMaxUpdatesPerSecond = int.TryParse(MsiSdkRateBox.Text, out var sdkRate)
+            ? Math.Clamp(sdkRate, 1, MsiMysticLightSdkDeviceProvider.MaxAllowedUpdatesPerSecond)
+            : _config.MsiMysticLight.SdkMaxUpdatesPerSecond;
+        _config.MsiMysticLight.SdkPerLed = MsiSdkPerLedCheck.IsChecked == true;
         _config.MsiMysticLight.LedCountOverride = int.TryParse(MsiLedCountBox.Text, out var ledCount) && ledCount > 0 ? ledCount : 1;
 
         _config.HomeAssistant.Enabled = HaEnabledCheck.IsChecked == true;

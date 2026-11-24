@@ -2,7 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="AetherRGB — LED-Anordnung" Width="980" Height="740" MinWidth="900" MinHeight="700"
-        WindowStartupLocation="CenterOwner" ResizeMode="CanResize">
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        Background="{StaticResource BrushBackground}" Foreground="{StaticResource BrushText}" FontFamily="Segoe UI">
+    <!-- Hintergrund explizit: der implizite Window-Stil aus App.xaml greift nur für exakt "Window",
+         nicht für abgeleitete Fenster — ohne das blieb das Fenster Windows-weiß unter hellem Text. -->
     <Grid Margin="20">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="260" />

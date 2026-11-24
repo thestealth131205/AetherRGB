@@ -27,7 +27,13 @@ public sealed class EffectScene
     /// des Farbverlaufs erhalten, wenn man kurz auf einen anderen Effekt wechselt und zurück.</summary>
     public Dictionary<string, List<string>> EffectColors { get; set; } = new();
 
+    /// <summary>Gewählte Geschwindigkeit in Prozent (<see cref="EffectCatalog.MinSpeedPercent"/> ..
+    /// <see cref="EffectCatalog.MaxSpeedPercent"/>), pro Effekt-ID wie <see cref="EffectColors"/>.</summary>
+    public Dictionary<string, int> EffectSpeeds { get; set; } = new();
+
     private readonly object _effectLock = new();
+    private TimeSpan _effectTime, _lastGlobal;
+    private bool _clockStarted;
     private ICanvasEffect? _effect;
     private string? _effectInstanceKey;
 
@@ -48,6 +54,48 @@ public sealed class EffectScene
             colors[slot] = color.ToHex();
             EffectColors[descriptor.Id] = colors;
             _effectInstanceKey = null;
+        }
+    }
+
+    public int GetEffectSpeed()
+    {
+        lock (_effectLock) return ResolveSpeed(EffectId);
+    }
+
+    public void SetEffectSpeed(int percent)
+    {
+        lock (_effectLock)
+            EffectSpeeds[EffectCatalog.Get(EffectId).Id] =
+                Math.Clamp(percent, EffectCatalog.MinSpeedPercent, EffectCatalog.MaxSpeedPercent);
+    }
+
+    private int ResolveSpeed(string effectId) =>
+        EffectSpeeds.TryGetValue(EffectCatalog.Get(effectId).Id, out var p)
+            ? Math.Clamp(p, EffectCatalog.MinSpeedPercent, EffectCatalog.MaxSpeedPercent)
+            : EffectCatalog.DefaultSpeedPercent;
+
+    /// <summary>Effektzeit dieses Fensters zur gemeinsamen Uhr <paramref name="globalElapsed"/>: die
+    /// Zeitdifferenzen werden mit der Geschwindigkeit aufsummiert statt die Uhr einfach zu
+    /// multiplizieren — so läuft die Animation beim Verschieben des Reglers ohne Sprung weiter.
+    /// Engine und Vorschau fragen mit derselben Uhr, daher sehen beide dieselbe Effektzeit.</summary>
+    public TimeSpan GetEffectTime(TimeSpan globalElapsed)
+    {
+        lock (_effectLock)
+        {
+            if (!_clockStarted)
+            {
+                // Beim ersten Aufruf auf der gemeinsamen Uhr aufsetzen, damit Fenster mit 100 %
+                // genau wie bisher synchron zur Engine-Zeit laufen.
+                _clockStarted = true;
+                _effectTime = globalElapsed * (ResolveSpeed(EffectId) / 100.0);
+                _lastGlobal = globalElapsed;
+            }
+            else if (globalElapsed > _lastGlobal)
+            {
+                _effectTime += (globalElapsed - _lastGlobal) * (ResolveSpeed(EffectId) / 100.0);
+                _lastGlobal = globalElapsed;
+            }
+            return _effectTime;
         }
     }
 

@@ -46,17 +46,20 @@ public sealed class CanvasEffectEngine : IDisposable
     }
 
     /// <summary>Farben aller LEDs eines platzierten Geräts für den aktuellen Zeitpunkt, inkl. Helligkeit.
-    /// Hat die Form weniger LEDs als das Gerät meldet, bleiben die übrigen schwarz.</summary>
+    /// Hat die Form weniger LEDs als das Gerät meldet, bleiben die übrigen schwarz.
+    /// <paramref name="elapsed"/> ist die gemeinsame Engine-Uhr, die Szene rechnet daraus ihre
+    /// Effektzeit inkl. Geschwindigkeit.</summary>
     public static RgbColor[] RenderItem(EffectScene scene, DeviceLayoutItem item, LedShape shape, TimeSpan elapsed)
     {
         var positions = item.ComputeLedPositions(shape);
         var colors = new RgbColor[Math.Max(positions.Count, item.LedCount)];
         double brightness = Math.Clamp(scene.Brightness, 0, 100) / 100.0 * Math.Clamp(item.Brightness, 0, 100) / 100.0;
         var effect = scene.Effect;
+        var effectTime = scene.GetEffectTime(elapsed);
         for (int i = 0; i < positions.Count; i++)
         {
             var (x, y) = positions[i];
-            colors[i] = Scale(effect.Sample(x, y, scene.CanvasWidth, scene.CanvasHeight, elapsed), brightness);
+            colors[i] = Scale(effect.Sample(x, y, scene.CanvasWidth, scene.CanvasHeight, effectTime), brightness);
         }
         return colors;
     }

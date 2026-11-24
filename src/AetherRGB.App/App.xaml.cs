@@ -1,6 +1,8 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Threading;
 
 namespace AetherRGB.App;
@@ -24,7 +26,31 @@ public partial class App : Application
             args.SetObserved();
         };
 
+        // Dunkle Titelleiste für jedes Fenster der App (Windows 10 1809+ / 11), passend zum Design.
+        EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((s, _) => UseDarkTitleBar((Window)s)));
+
         base.OnStartup(e);
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    private static void UseDarkTitleBar(Window window)
+    {
+        try
+        {
+            var hwnd = new WindowInteropHelper(window).Handle;
+            if (hwnd == IntPtr.Zero) return;
+            int on = 1;
+            // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE, ältere Windows-10-Builds kennen nur 19.
+            if (DwmSetWindowAttribute(hwnd, 20, ref on, sizeof(int)) != 0)
+                DwmSetWindowAttribute(hwnd, 19, ref on, sizeof(int));
+        }
+        catch
+        {
+            // Rein optisch — ohne DWM bleibt die Titelleiste eben hell.
+        }
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

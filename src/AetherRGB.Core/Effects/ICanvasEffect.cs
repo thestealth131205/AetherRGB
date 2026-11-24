@@ -76,6 +76,10 @@ public sealed class CanvasRadialPulseEffect : ICanvasEffect
     private readonly RgbColor _background;
     private readonly double _speedHz;
 
+    /// <summary>Halbe Ringbreite relativ zum Abstand Mitte–Ecke. Schmal genug, dass auf einem
+    /// Strip sichtbar ein Ring durchläuft statt dass alle LEDs gemeinsam auf- und abblenden.</summary>
+    private const double RingHalfWidth = 0.18;
+
     public CanvasRadialPulseEffect(RgbColor color, RgbColor? background = null, double speedHz = 0.3)
     {
         _color = color;
@@ -90,9 +94,13 @@ public sealed class CanvasRadialPulseEffect : ICanvasEffect
         double dist = maxDist <= 0 ? 0 : Math.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) / maxDist;
 
         double phase = (elapsed.TotalSeconds * _speedHz) % 1.0;
-        // Ring, der nach außen läuft: Abstand zur aktuellen "Pulswelle" bestimmt die Mischung.
-        double ringDist = Math.Abs(dist - phase);
-        double t = 1.0 - Math.Clamp(ringDist * 2.5, 0.0, 1.0);
+        // Ring, der nach außen läuft. Er startet eine Ringbreite vor der Mitte und endet eine
+        // Ringbreite hinter dem Rand, so blendet er weich ein und aus — sonst springt beim
+        // Phasenwechsel jede LED nahe der Mitte schlagartig von dunkel auf hell.
+        double ringPos = phase * (1.0 + 2.0 * RingHalfWidth) - RingHalfWidth;
+        double ringDist = Math.Abs(dist - ringPos);
+        double t = 1.0 - Math.Clamp(ringDist / RingHalfWidth, 0.0, 1.0);
+        t = 0.5 - 0.5 * Math.Cos(t * Math.PI); // weiche Ringkante statt linearem Dreieck
         return RgbColor.Lerp(_background, _color, t);
     }
 }

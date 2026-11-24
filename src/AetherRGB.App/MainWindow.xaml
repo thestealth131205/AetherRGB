@@ -135,7 +135,17 @@
                                         <TextBox x:Name="MsiSdkPathBox" Grid.Column="0" Margin="0,0,8,0" TextChanged="OnMsiSdkPathChanged" />
                                         <Button Grid.Column="1" Content="Durchsuchen …" Click="OnMsiSdkBrowseClick" />
                                     </Grid>
-                                    <TextBlock x:Name="MsiSdkStatusText" TextWrapping="Wrap" Foreground="{StaticResource BrushText}" />
+                                    <TextBlock x:Name="MsiSdkStatusText" TextWrapping="Wrap" Foreground="{StaticResource BrushText}" Margin="0,0,0,10" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <TextBlock Text="Max. Farb-Updates pro Sekunde:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBox x:Name="MsiSdkRateBox" Width="60" />
+                                    </StackPanel>
+                                    <TextBlock Text="Standard 15. Meldet der MSI-Dienst Fehler oder hängt der Controller (Board-LEDs flackern, Windows meldet USB trennen/verbinden), senkt AetherRGB das Tempo automatisch und hebt es nach 30 s ohne Probleme wieder an. Kommt das oft vor, den Wert hier dauerhaft senken."
+                                               Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                                    <CheckBox x:Name="MsiSdkPerLedCheck" Margin="0,12,0,4"
+                                              Content="ARGB-Anschlüsse LED für LED steuern (Direct Lighting Control)" />
+                                    <TextBlock Text="PCH (6 LEDs) und JRAINBOW (WS2812-Strips, bis 100 LEDs) zeigen dann den Effekt pro LED. Die tatsächliche Strip-Länge legst du über die LED-Anordnung des Geräts fest. Aus = jeder Anschluss zeigt eine Mischfarbe."
+                                               Style="{StaticResource MutedText}" TextWrapping="Wrap" />
                                 </StackPanel>
 
                                 <!-- Eigene HID-Variante -->

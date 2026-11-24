@@ -46,6 +46,13 @@ internal sealed class MysticLightSdkNative
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int SetLedColorFn([MarshalAs(UnmanagedType.BStr)] string deviceType, uint index, uint r, uint g, uint b);
 
+    /// <summary>Farben einzelner LEDs eines Bereichs, adressiert über ihre Namen aus MLAPI_GetLedName —
+    /// nur im Stil "Direct Lighting Control". R/G/B sind DWORD-Arrays gleicher Länge wie die Namen.</summary>
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    public delegate int SetLedColorsFn([MarshalAs(UnmanagedType.BStr)] string deviceType, uint index,
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] ref string[] ledNames,
+        uint[] r, uint[] g, uint[] b);
+
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int SetLedStyleFn([MarshalAs(UnmanagedType.BStr)] string deviceType, uint index, [MarshalAs(UnmanagedType.BStr)] string style);
 
@@ -58,6 +65,8 @@ internal sealed class MysticLightSdkNative
     public required GetLedStyleFn GetLedStyle { get; init; }
     public required SetLedColorFn SetLedColor { get; init; }
     public required SetLedStyleFn SetLedStyle { get; init; }
+    /// <summary>Null, wenn die DLL die Funktion nicht exportiert — dann nur ganze Bereiche.</summary>
+    public SetLedColorsFn? SetLedColors { get; init; }
     public required string LoadedFrom { get; init; }
 
     private static readonly object LoadLock = new();
@@ -148,6 +157,7 @@ internal sealed class MysticLightSdkNative
                     GetLedStyle = Get<GetLedStyleFn>(handle, "MLAPI_GetLedStyle"),
                     SetLedColor = Get<SetLedColorFn>(handle, "MLAPI_SetLedColor"),
                     SetLedStyle = Get<SetLedStyleFn>(handle, "MLAPI_SetLedStyle"),
+                    SetLedColors = TryGet<SetLedColorsFn>(handle, "MLAPI_SetLedColors"),
                     LoadedFrom = path
                 };
                 return _loaded;
@@ -187,6 +197,9 @@ internal sealed class MysticLightSdkNative
 
     private static T Get<T>(IntPtr handle, string name) where T : Delegate =>
         Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(handle, name));
+
+    private static T? TryGet<T>(IntPtr handle, string name) where T : Delegate =>
+        NativeLibrary.TryGetExport(handle, name, out var address) ? Marshal.GetDelegateForFunctionPointer<T>(address) : null;
 
     /// <summary>Fehlercode als lesbarer Text — zuerst die SDK-eigene Beschreibung, sonst die
     /// dokumentierten MLAPI-Codes.</summary>
