@@ -13,6 +13,7 @@ using AetherRGB.Core.Config;
 using AetherRGB.Core.Devices;
 using AetherRGB.Core.Diagnostics;
 using AetherRGB.Core.Effects;
+using AetherRGB.Core.Effects.Custom;
 using AetherRGB.Core.Layout;
 using AetherRGB.Core.Update;
 using AetherRGB.Providers.HomeAssistant;
@@ -36,6 +37,7 @@ public partial class MainWindow : Window
     private readonly CanvasEffectEngine _engine;
     private readonly SceneCollection _scenes = SceneCollection.LoadOrCreateDefault();
     private readonly LedShapeStore _shapes = LedShapeStore.LoadOrCreateDefault();
+    private readonly CustomEffectStore _customEffects = new();
     private LocalApiHost? _api;
     private MsiMysticLightDeviceProvider? _msiProvider;
     private readonly MsiBoardInfo? _msiBoard = MsiBoardDetector.Detect();
@@ -63,6 +65,17 @@ public partial class MainWindow : Window
         _engine.SetScenes(_scenes);
         _engine.SetShapes(_shapes);
         _engine.SendError += (deviceId, error) => Log($"Senden an {deviceId} fehlgeschlagen: {error}", LogLevel.Warning);
+        _engine.Statistics += message => Log(message, LogLevel.Debug);
+
+        // Eigene Effekte vor dem Effekte-Panel laden, damit gespeicherte Fenster ihren Effekt gleich finden.
+        _customEffects.Log += (level, msg) => Log(msg, level);
+        try
+        {
+            _customEffects.LoadAll();
+            _customEffects.StartWatching();
+            Log($"Eigene Effekte: {_customEffects.Effects.Count} in {_customEffects.Directory}", LogLevel.Debug);
+        }
+        catch (Exception ex) { Log("Eigene Effekte konnten nicht geladen werden: " + ExceptionText.Describe(ex), LogLevel.Warning); }
 
         EffectsPanel.LogMessage += Log;
         EffectsPanel.AddWledDevicesAsync = AddWledDevicesAsync;
@@ -210,7 +223,8 @@ public partial class MainWindow : Window
                 {
                     DllPath = string.IsNullOrWhiteSpace(_config.MsiMysticLight.SdkDllPath) ? null : _config.MsiMysticLight.SdkDllPath,
                     MaxUpdatesPerSecond = _config.MsiMysticLight.SdkMaxUpdatesPerSecond,
-                    PerLed = _config.MsiMysticLight.SdkPerLed
+                    PerLed = _config.MsiMysticLight.SdkPerLed,
+                    SendOnlyUsedLeds = _config.MsiMysticLight.SdkSendOnlyUsedLeds
                 };
                 _registry.Register(sdkProvider);
                 break;
@@ -318,6 +332,7 @@ public partial class MainWindow : Window
         MsiSdkPathBox.Text = _config.MsiMysticLight.SdkDllPath;
         MsiSdkRateBox.Text = _config.MsiMysticLight.SdkMaxUpdatesPerSecond.ToString();
         MsiSdkPerLedCheck.IsChecked = _config.MsiMysticLight.SdkPerLed;
+        MsiSdkUsedLedsCheck.IsChecked = _config.MsiMysticLight.SdkSendOnlyUsedLeds;
         MsiLedCountBox.Text = _config.MsiMysticLight.LedCountOverride.ToString();
         UpdateMsiPanels();
 
@@ -373,6 +388,7 @@ public partial class MainWindow : Window
             ? Math.Clamp(sdkRate, 1, MsiMysticLightSdkDeviceProvider.MaxAllowedUpdatesPerSecond)
             : _config.MsiMysticLight.SdkMaxUpdatesPerSecond;
         _config.MsiMysticLight.SdkPerLed = MsiSdkPerLedCheck.IsChecked == true;
+        _config.MsiMysticLight.SdkSendOnlyUsedLeds = MsiSdkUsedLedsCheck.IsChecked == true;
         _config.MsiMysticLight.LedCountOverride = int.TryParse(MsiLedCountBox.Text, out var ledCount) && ledCount > 0 ? ledCount : 1;
 
         _config.HomeAssistant.Enabled = HaEnabledCheck.IsChecked == true;
@@ -780,6 +796,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _customEffects.Dispose();
         _engine.Dispose();
         _ = _api?.StopAsync();
         _ = _registry.DisposeAsync();

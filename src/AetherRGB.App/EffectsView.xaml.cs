@@ -8,6 +8,7 @@ using System.Windows.Threading;
 using AetherRGB.Core.Devices;
 using AetherRGB.Core.Diagnostics;
 using AetherRGB.Core.Effects;
+using AetherRGB.Core.Effects.Custom;
 using AetherRGB.Core.Layout;
 using AetherRGB.Providers.Wled;
 using Forms = System.Windows.Forms;
@@ -74,6 +75,9 @@ public partial class EffectsView : UserControl
         }
         PreviewKeyDown += OnPreviewKeyDown;
 
+        // Eigener Effekt gespeichert/importiert/gelöscht → Auswahl neu aufbauen (kommt vom Dateiwächter-Thread).
+        EffectCatalog.Changed += () => Dispatcher.BeginInvoke(OnCatalogChanged);
+
         _previewTimer.Tick += (_, _) => RenderPreview();
         IsVisibleChanged += (_, _) =>
         {
@@ -90,6 +94,7 @@ public partial class EffectsView : UserControl
         _shapes = shapes;
         BuildTabs();
         ShowScene(_scenes.Scenes.FirstOrDefault(s => s.Id == _scenes.ActiveSceneId) ?? _scenes.Scenes[0]);
+        WarnMissingEffects();
     }
 
     /// <summary>Neue Geräteliste nach "Geräte neu suchen" — aktualisiert die Liste rechts, LED-Anzahlen und
@@ -238,6 +243,31 @@ public partial class EffectsView : UserControl
         BuildTabs();
         UpdateFields();
         RenderPreview();
+    }
+
+    private void OnCatalogChanged()
+    {
+        _suppressUiEvents = true;
+        EffectCombo.ItemsSource = EffectCatalog.All;
+        if (_scene is not null) EffectCombo.SelectedItem = EffectCatalog.Get(_scene.EffectId);
+        _suppressUiEvents = false;
+        if (_scene is not null) BuildEffectColorControls();
+        WarnMissingEffects();
+    }
+
+    private readonly HashSet<string> _warnedMissing = new();
+
+    /// <summary>Fenster, deren eigener Effekt fehlt (Datei gelöscht/umbenannt), zeigen die Regenbogen-Welle —
+    /// einmal pro Effekt im Log erwähnen, damit das nicht wie ein Fehler der App aussieht.</summary>
+    private void WarnMissingEffects()
+    {
+        foreach (var scene in _scenes.Scenes)
+        {
+            if (EffectCatalog.Contains(scene.EffectId)) { _warnedMissing.Remove(scene.EffectId); continue; }
+            if (_warnedMissing.Add(scene.EffectId))
+                LogMessage?.Invoke($"'{scene.Name}': Effekt {scene.EffectId} nicht gefunden (Datei in {CustomEffectStore.DefaultDirectory} fehlt?) — " +
+                                   $"zeige stattdessen '{EffectCatalog.BuiltIn[0].Name}'.", LogLevel.Warning);
+        }
     }
 
     private void OnSceneNameChanged(object sender, TextChangedEventArgs e)

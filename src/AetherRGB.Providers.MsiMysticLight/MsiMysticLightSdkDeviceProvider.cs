@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using AetherRGB.Core.Devices;
 using AetherRGB.Core.Diagnostics;
+using AetherRGB.Core.Timing;
 
 namespace AetherRGB.Providers.MsiMysticLight;
 
@@ -25,8 +27,14 @@ namespace AetherRGB.Providers.MsiMysticLight;
 /// an (Flackern, Windows-Ton für USB trennen/verbinden, MSI Center setzt danach seinen Stil zurück).
 /// Daher sind die Senderunden auf <see cref="MaxUpdatesPerSecond"/> gedrosselt (Standard 15). Meldet der Dienst
 /// Fehler, setzt er den Stil zurück oder hängen Aufrufe, regelt der Sende-Thread das Tempo selbst herunter und
-/// tastet sich nach einer stabilen Phase wieder an den eingestellten Wert heran.</summary>
-public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProviderLog
+/// tastet sich nach einer stabilen Phase wieder an den eingestellten Wert heran.
+///
+/// Ein Aufruf dauert am B550 sehr gleichmäßig ~31 ms. Der Sende-Thread läuft deshalb auf festen
+/// Rundenterminen ab Rundenbeginn (eine Runde mit 3 Anschlüssen dauert allein schon ~93 ms) und holt sich
+/// die Farben über <see cref="IFrameSourceProvider"/> erst unmittelbar vor jedem Aufruf — so sind die
+/// Zeitschritte auf den LEDs gleich groß. Bei Strips, deren LED-Anordnung weniger LEDs belegt als der
+/// Header kann, werden nach einmal Schwarzsetzen nur noch die belegten LEDs gesendet.</summary>
+public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProviderLog, IFrameSourceProvider
 {
     public string ProviderId => "msisdk";
     public bool IsConnected { get; private set; }
@@ -40,11 +48,15 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
     /// <summary>Bereiche mit mehreren LEDs einzeln ansteuern (Direct Lighting Control).</summary>
     public bool PerLed { get; init; } = true;
 
+    /// <summary>Bei Einzel-LED-Bereichen nur die laut LED-Anordnung belegten LEDs senden (die übrigen
+    /// werden einmal schwarz gesetzt). Lehnt das Board eine Teilliste ab, wird der Bereich wieder komplett gesendet.</summary>
+    public bool SendOnlyUsedLeds { get; init; } = true;
+
     /// <summary>JRAINBOW-Header treiben bis zu 100 LEDs; MLAPI_GetLedName liefert teils mehr Namen,
     /// als ein Header kann — mehr als das wird nie gemeldet/gesendet.</summary>
     public const int MaxLedsPerArea = 100;
 
-    public const int MaxAllowedUpdatesPerSecond = 30;
+    public const int MaxAllowedUpdatesPerSecond = 60;
 
     public event Action<LogLevel, string>? Log;
 
@@ -70,6 +82,18 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
         public string[]? SendNames { get; set; }
         public int ConsecutiveFailures { get; set; }
         public int ReportedLedCount => PerLed ? LedNames.Length : 1;
+
+        /// <summary>Ab dieser LED sind laut letztem Senden alle LEDs schwarz (LedNames.Length = unbekannt).
+        /// Nur dann dürfen Teillisten gesendet werden, ohne dass alte Farben hinten stehen bleiben.</summary>
+        public int BlackFrom { get; set; } = int.MaxValue;
+        public bool SubsetRejected { get; set; }
+        /// <summary>Teilliste der <see cref="SendNames"/> für die zuletzt benutzte Anzahl belegter LEDs.</summary>
+        public string[]? SubsetNames { get; set; }
+
+        /// <summary>Gleitender Mittelwert der Aufrufdauer — die Farben werden für die Mitte des Aufrufs berechnet.</summary>
+        public double AverageCallMs { get; set; }
+        public int StatCalls, StatSkipped;
+        public double StatTotalMs, StatMaxMs;
     }
 
     private sealed record SdkDevice(string Type, List<SdkArea> Areas);
@@ -82,7 +106,9 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
     private readonly ConcurrentDictionary<(string Type, int Index), RgbColor[]> _pending = new();
     private readonly Dictionary<(string Type, int Index), RgbColor[]> _lastSent = new();
     private readonly HashSet<(string Type, int Index)> _failedAreas = new();
+    private readonly ConcurrentDictionary<(string Type, int Index), ZoneFrameSource> _sources = new();
     private readonly AutoResetEvent _wake = new(false);
+    private readonly ManualResetEvent _stopEvent = new(false);
     private Thread? _worker;
     private volatile bool _stopping;
     private readonly object _sdkLock = new();
@@ -229,7 +255,7 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
                         string.Join(", ", x.Areas.Select(a => $"{a.Name}: {a.ReportedLedCount} LED(s)")) + ")")));
 
         _stopping = false;
-        _worker = new Thread(SendLoop) { IsBackground = true, Name = "AetherRGB MSI SDK" };
+        _worker = new Thread(SendLoop) { IsBackground = true, Name = "AetherRGB MSI SDK", Priority = ThreadPriority.AboveNormal };
         _worker.Start();
     }
 
@@ -425,8 +451,23 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
         return Task.CompletedTask;
     }
 
-    /// <summary>Farbänderungen bis zu dieser Größe je Kanal werden nicht geschickt — sie sind am Board
-    /// kaum sichtbar und kosten trotzdem einen USB-Schreibvorgang.</summary>
+    public void SetZoneFrameSource(string deviceId, int zoneIndex, ZoneFrameSource? source)
+    {
+        if (!deviceId.StartsWith(ProviderId + ":", StringComparison.OrdinalIgnoreCase)) return;
+        var key = (deviceId[(ProviderId.Length + 1)..], zoneIndex);
+        if (!_areas.ContainsKey(key)) return;
+        if (source is null) _sources.TryRemove(key, out _);
+        else
+        {
+            _sources[key] = source;
+            _wake.Set();
+        }
+    }
+
+    /// <summary>Farbänderungen bis zu dieser Größe je Kanal werden bei Bereichen mit nur einer Farbe nicht
+    /// geschickt — sie sind am Board kaum sichtbar und kosten trotzdem einen USB-Schreibvorgang. Einzel-LED-
+    /// Bereiche werden schon bei jeder Änderung gesendet, sonst bleiben LEDs bei langsamen Übergängen
+    /// stehen und springen dann.</summary>
     private const int ColorTolerance = 3;
 
     /// <summary>Dauert ein Aufruf länger, hängt der Dienst vermutlich am neu verbundenen Controller.</summary>
@@ -443,53 +484,87 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
     {
         double maxRate = Math.Clamp(MaxUpdatesPerSecond, 1, MaxAllowedUpdatesPerSecond);
         double rate = maxRate;
-        var stableSince = DateTime.UtcNow;
-        Log?.Invoke(LogLevel.Debug, $"Mystic Light SDK: Sende-Thread läuft, höchstens {rate:0.#} Runde(n)/s.");
-        var lastRound = DateTime.MinValue;
-        var statsStarted = DateTime.UtcNow;
+        var clock = Stopwatch.StartNew();
+        using var waiter = new PreciseWaiter();
+        Log?.Invoke(LogLevel.Debug, $"Mystic Light SDK: Sende-Thread läuft, höchstens {rate:0.#} Runde(n)/s, " +
+                                    $"Takt {(waiter.IsHighResolution ? "hochauflösend" : "timeBeginPeriod(1)")}, " +
+                                    $"{(SendOnlyUsedLeds ? "nur belegte LEDs senden" : "immer alle LEDs senden")}.");
+        var stableSince = clock.Elapsed;
+        var nextRound = clock.Elapsed;
+        var statsStarted = clock.Elapsed;
+        TimeSpan? lastRoundStart = null;
         int rounds = 0, calls = 0, failures = 0, restyles = 0, slowCalls = 0;
-        double totalMs = 0, maxMs = 0;
+        double totalMs = 0, maxMs = 0, sumGap = 0, sumGapSq = 0;
+        int gaps = 0;
 
         while (!_stopping)
         {
-            _wake.WaitOne(500);
+            // Nichts zu tun (kein Effekt läuft auf MSI, keine API-Farben) → schlafen, bis sich das ändert.
+            if (_sources.IsEmpty && _pending.IsEmpty)
+            {
+                _wake.WaitOne(500);
+                nextRound = clock.Elapsed;
+                lastRoundStart = null;
+                continue;
+            }
+
+            // Feste Rundentermine ab Rundenbeginn: Eine Runde mit 3 Anschlüssen dauert selbst schon ~93 ms.
+            // Früher wurde das Intervall erst ab dem Ende der Runde gezählt (66 + 93 ms → nur ~6 Runden/s).
+            waiter.WaitUntil(clock, nextRound, _stopEvent);
             if (_stopping) break;
 
-            // Drosselung: zwischen zwei Runden mindestens das Intervall abwarten; was in der Zeit
-            // ankommt, überschreibt nur _pending, gesendet wird danach die neueste Farbe.
-            var wait = lastRound + TimeSpan.FromSeconds(1.0 / rate) - DateTime.UtcNow;
-            if (wait > TimeSpan.Zero) Thread.Sleep(wait);
-            if (_stopping) break;
+            var roundStart = clock.Elapsed;
+            if (lastRoundStart is { } prev)
+            {
+                double gap = (roundStart - prev).TotalMilliseconds;
+                sumGap += gap; sumGapSq += gap * gap; gaps++;
+            }
 
             bool sentAny = false, pause = false, unstable = false;
-            foreach (var key in _pending.Keys)
+            // Feste Reihenfolge (wie vom SDK gemeldet), damit jeder Anschluss gleichmäßig drankommt.
+            var keys = _areas.Keys.Where(k => _sources.ContainsKey(k) || _pending.ContainsKey(k)).ToList();
+            foreach (var key in keys)
             {
                 if (_stopping) break;
-                if (!_pending.TryRemove(key, out var frame)) continue;
-                if (!_areas.TryGetValue(key, out var area)) continue;
+                var area = _areas[key];
                 bool perLed = area.PerLed;
-                // Frame passt nicht zum Modus (Bereich wurde gerade auf eine Farbe zurückgestellt) → mitteln.
-                if (!perLed && frame.Length > 1) frame = new[] { Average(frame) };
-                if (perLed && frame.Length != area.LedNames.Length) continue;
-                if (_lastSent.TryGetValue(key, out var last) && Close(last, frame)) continue;
+
+                if (!TryBuildFrame(key, area, perLed, out var frame, out int used)) continue;
+                if (_lastSent.TryGetValue(key, out var last) && (perLed ? Same(last, frame) : Close(last, frame))
+                    && (!perLed || area.BlackFrom <= used))
+                {
+                    area.StatSkipped++;
+                    continue;
+                }
 
                 int rc;
-                bool restyled = false;
-                var callStarted = DateTime.UtcNow;
+                bool restyled = false, subset = false, subsetRejectedNow = false;
+                var callStarted = clock.Elapsed;
                 lock (_sdkLock)
                 {
                     if (_sdk is null || !IsConnected) return;
                     if (perLed)
                     {
-                        if (area.SendNames is null) rc = ProbePerLed(area, frame);
+                        if (area.SendNames is null)
+                            rc = ProbePerLed(area, Pad(frame, area.LedNames.Length));
                         else
                         {
-                            rc = CallSetLedColors(area, area.SendIndex, area.SendNames, frame);
+                            subset = SendOnlyUsedLeds && !area.SubsetRejected && used < area.LedNames.Length && area.BlackFrom <= used;
+                            rc = SendPerLed(area, frame, used, subset);
                             // MSI Center oder ein neu verbundener Controller kann den Stil zurückgestellt haben.
                             if (rc == MLAPI_NOT_SUPPORTED && _sdk.SetLedStyle(key.Type, (uint)key.Index, DirectStyle) == MysticLightSdkNative.MLAPI_OK)
                             {
                                 restyled = true;
-                                rc = CallSetLedColors(area, area.SendIndex, area.SendNames, frame);
+                                rc = SendPerLed(area, frame, used, subset);
+                            }
+                            if (subset && rc != MysticLightSdkNative.MLAPI_OK)
+                            {
+                                // Das Board nimmt keine Teilliste an — ab jetzt immer alle LEDs dieses Anschlusses senden.
+                                area.SubsetRejected = subsetRejectedNow = true;
+                                Log?.Invoke(LogLevel.Warning, $"Mystic Light SDK: {area.Type} „{area.Name}“: Teilliste mit {used} von {area.LedNames.Length} LEDs " +
+                                                              $"abgelehnt ({_sdk.Describe(rc)}) — sende ab jetzt immer alle LEDs.");
+                                subset = false;
+                                rc = SendPerLed(area, frame, used, subset);
                             }
                         }
                     }
@@ -514,65 +589,151 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
                     }
                     else if (rc == MysticLightSdkNative.MLAPI_OK) area.ConsecutiveFailures = 0;
                 }
-                var duration = DateTime.UtcNow - callStarted;
+                double ms = (clock.Elapsed - callStarted).TotalMilliseconds;
                 sentAny = true;
                 calls++;
-                totalMs += duration.TotalMilliseconds;
-                maxMs = Math.Max(maxMs, duration.TotalMilliseconds);
-                if (restyled) { restyles++; unstable = true; }
-                if (duration > SlowCall) { slowCalls++; pause = unstable = true; }
+                totalMs += ms;
+                maxMs = Math.Max(maxMs, ms);
+                area.StatCalls++;
+                area.StatTotalMs += ms;
+                area.StatMaxMs = Math.Max(area.StatMaxMs, ms);
+                area.AverageCallMs = area.AverageCallMs <= 0 ? ms : area.AverageCallMs * 0.9 + ms * 0.1;
+                // Kam der Stil-Neusatz nur von der abgelehnten Teilliste, ist der Controller nicht instabil.
+                if (restyled && !subsetRejectedNow) { restyles++; unstable = true; }
+                if (ms > SlowCall.TotalMilliseconds) { slowCalls++; pause = unstable = true; }
 
-                if (rc == MysticLightSdkNative.MLAPI_OK) _lastSent[key] = frame;
+                if (rc == MysticLightSdkNative.MLAPI_OK)
+                {
+                    _lastSent[key] = frame;
+                    // Komplett gesendet: hinter den belegten LEDs ist alles schwarz. Teilliste: dahinter
+                    // bleibt es schwarz, davor steht jetzt das neue Bild.
+                    // Nach neu gesetztem Stil (Controller evtl. neu gestartet) ist unbekannt, was hinten auf
+                    // dem Strip steht — nächste Runde dann komplett senden.
+                    if (perLed) area.BlackFrom = restyled && subset ? int.MaxValue : used;
+                }
                 else
                 {
                     failures++;
                     pause = unstable = true;
                     _lastSent.Remove(key);
+                    area.BlackFrom = int.MaxValue;
                     if (_failedAreas.Add(key))
                         Log?.Invoke(LogLevel.Warning, $"Mystic Light SDK: {(perLed ? "MLAPI_SetLedColors" : "MLAPI_SetLedColor")}({key.Type}, {key.Index}) fehlgeschlagen — " +
-                                                      $"{_sdk.Describe(rc)} (weitere Fehler dieses Bereichs werden nicht erneut gemeldet)");
+                                                      $"{_sdk!.Describe(rc)} (weitere Fehler dieses Bereichs werden nicht erneut gemeldet)");
                 }
             }
-            if (sentAny) { rounds++; lastRound = DateTime.UtcNow; }
+            if (sentAny) { rounds++; lastRoundStart = roundStart; }
 
             // Automatische Drosselung: Probleme → Tempo senken; lange genug stabil → wieder anheben.
             if (unstable)
             {
-                stableSince = DateTime.UtcNow;
+                stableSince = clock.Elapsed;
                 if (rate > MinAdaptiveRate)
                 {
                     rate = Math.Max(MinAdaptiveRate, Math.Floor(rate * 0.6));
                     Log?.Invoke(LogLevel.Warning, $"Mystic Light SDK: MSI-Dienst/Controller kommt nicht hinterher — Tempo automatisch auf {rate:0} Runde(n)/s gesenkt.");
                 }
             }
-            else if (sentAny && rate < maxRate && DateTime.UtcNow - stableSince >= RateRecoveryAfter)
+            else if (sentAny && rate < maxRate && clock.Elapsed - stableSince >= RateRecoveryAfter)
             {
-                stableSince = DateTime.UtcNow;
+                stableSince = clock.Elapsed;
                 rate = Math.Min(maxRate, rate + 2);
                 Log?.Invoke(LogLevel.Info, $"Mystic Light SDK: {RateRecoveryAfter.TotalSeconds:0} s stabil — Tempo wieder auf {rate:0} Runde(n)/s.");
             }
 
-            if (DateTime.UtcNow - statsStarted >= StatsInterval)
+            if (clock.Elapsed - statsStarted >= StatsInterval)
             {
                 if (calls > 0)
                 {
-                    var secs = (DateTime.UtcNow - statsStarted).TotalSeconds;
+                    var secs = (clock.Elapsed - statsStarted).TotalSeconds;
                     var problems = failures + restyles + slowCalls > 0;
+                    double meanGap = gaps > 0 ? sumGap / gaps : 0;
+                    double sdGap = gaps > 0 ? Math.Sqrt(Math.Max(0, sumGapSq / gaps - meanGap * meanGap)) : 0;
+                    var perArea = string.Join("; ", _areas.Values.Where(a => a.StatCalls + a.StatSkipped > 0).Select(a =>
+                        $"{a.Name}: {a.StatCalls} Aufrufe, Ø {(a.StatCalls > 0 ? a.StatTotalMs / a.StatCalls : 0):0} ms, max. {a.StatMaxMs:0} ms" +
+                        (a.PerLed && a.BlackFrom < a.LedNames.Length && !a.SubsetRejected && SendOnlyUsedLeds ? $", {a.BlackFrom}/{a.LedNames.Length} LEDs" : "") +
+                        (a.StatSkipped > 0 ? $", {a.StatSkipped}× unverändert übersprungen" : "")));
                     Log?.Invoke(problems ? LogLevel.Warning : LogLevel.Debug,
-                        $"Mystic Light SDK: letzte {secs:0} s: {rounds / secs:0.0} Runden/s, {calls} Farb-Aufrufe, " +
+                        $"Mystic Light SDK: letzte {secs:0} s: {rounds / secs:0.0} Runden/s (Abstand Ø {meanGap:0} ms, Streuung {sdGap:0} ms), {calls} Farb-Aufrufe, " +
                         $"Ø {totalMs / calls:0} ms, max. {maxMs:0} ms, aktuelles Limit {rate:0} Runden/s, {failures} Fehler, {restyles}× Stil neu gesetzt, {slowCalls} langsame Aufrufe" +
+                        $" — pro Anschluss: {perArea}" +
                         (problems ? " — Stil zurückgesetzt oder langsame Aufrufe deuten auf einen neu verbundenen Controller hin; " +
                                     "ggf. „Max. Farb-Updates pro Sekunde“ in den Einstellungen senken." : ""));
                 }
-                statsStarted = DateTime.UtcNow;
-                rounds = calls = failures = restyles = slowCalls = 0;
-                totalMs = maxMs = 0;
+                statsStarted = clock.Elapsed;
+                rounds = calls = failures = restyles = slowCalls = gaps = 0;
+                totalMs = maxMs = sumGap = sumGapSq = 0;
+                foreach (var a in _areas.Values) { a.StatCalls = a.StatSkipped = 0; a.StatTotalMs = a.StatMaxMs = 0; }
             }
+
+            // Nächster Termin ab Beginn dieser Runde. Hat die Runde länger gedauert als das Intervall,
+            // geht es ohne zusätzliche Pause sofort weiter.
+            nextRound = roundStart + TimeSpan.FromSeconds(1.0 / rate);
+            if (nextRound < clock.Elapsed) nextRound = clock.Elapsed;
 
             // Nach Fehlern oder hängenden Aufrufen dem Controller Zeit zum Neuverbinden lassen,
             // statt ihn sofort wieder mit Aufrufen zu fluten.
-            if (pause && !_stopping) Thread.Sleep(ErrorPause);
+            if (pause && !_stopping)
+            {
+                _stopEvent.WaitOne(ErrorPause);
+                nextRound = clock.Elapsed;
+                lastRoundStart = null;
+            }
         }
+    }
+
+    /// <summary>Farben für einen Bereich: von einer laufenden Effekt-Zone (zum Zeitpunkt der Mitte des
+    /// voraussichtlichen Aufrufs) oder sonst die zuletzt per API gesetzten. <paramref name="used"/> = Anzahl
+    /// belegter LEDs; bei Einzel-LED-Bereichen hat <paramref name="frame"/> genau so viele Einträge.</summary>
+    private bool TryBuildFrame((string Type, int Index) key, SdkArea area, bool perLed, out RgbColor[] frame, out int used)
+    {
+        frame = Array.Empty<RgbColor>();
+        used = 0;
+        RgbColor[]? colors = null;
+        if (_sources.TryGetValue(key, out var source))
+        {
+            _pending.TryRemove(key, out _); // Ein laufender Effekt hat Vorrang vor alten API-Farben.
+            try { colors = source(TimeSpan.FromMilliseconds(area.AverageCallMs / 2)); }
+            catch (Exception ex)
+            {
+                // Die UI kann Fenster/Formen gerade ändern — diese Runde für den Bereich auslassen.
+                Log?.Invoke(LogLevel.Debug, $"Mystic Light SDK: Farben für {area.Name} nicht berechenbar: {ExceptionText.Describe(ex)}");
+                return false;
+            }
+        }
+        else if (!_pending.TryRemove(key, out colors)) return false;
+
+        if (colors.Length == 0) return false;
+        if (!perLed)
+        {
+            frame = new[] { colors.Length == 1 ? colors[0] : Average(colors) };
+            used = 1;
+            return true;
+        }
+        // Eine einzelne Farbe (z. B. API "ganze Zone") gilt für alle LEDs.
+        if (colors.Length == 1 && area.LedNames.Length > 1) colors = Pad(colors, area.LedNames.Length, fill: colors[0]);
+        used = Math.Min(colors.Length, area.LedNames.Length);
+        frame = colors.Length == used ? colors : colors[..used];
+        return true;
+    }
+
+    /// <summary>Sendet die belegten LEDs: als Teilliste (nur <paramref name="used"/> Namen) oder komplett mit
+    /// schwarzem Rest. Muss unter <see cref="_sdkLock"/> laufen.</summary>
+    private int SendPerLed(SdkArea area, RgbColor[] frame, int used, bool subset)
+    {
+        if (!subset) return CallSetLedColors(area, area.SendIndex, area.SendNames!, Pad(frame, area.LedNames.Length));
+        if (area.SubsetNames is null || area.SubsetNames.Length != used)
+            area.SubsetNames = area.SendNames![..used];
+        return CallSetLedColors(area, area.SendIndex, area.SubsetNames, frame);
+    }
+
+    private static RgbColor[] Pad(RgbColor[] colors, int length, RgbColor fill = default)
+    {
+        if (colors.Length >= length) return colors;
+        var padded = new RgbColor[length];
+        Array.Copy(colors, padded, colors.Length);
+        for (int i = colors.Length; i < length; i++) padded[i] = fill;
+        return padded;
     }
 
     private static bool Close(RgbColor a, RgbColor b) =>
@@ -585,6 +746,8 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
             if (!Close(a[i], b[i])) return false;
         return true;
     }
+
+    private static bool Same(RgbColor[] a, RgbColor[] b) => a.AsSpan().SequenceEqual(b);
 
     private static RgbColor Average(IReadOnlyList<RgbColor> colors)
     {
@@ -611,6 +774,7 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
     public ValueTask DisposeAsync()
     {
         _stopping = true;
+        _stopEvent.Set();
         _wake.Set();
         _worker?.Join(2000);
         lock (_sdkLock)
@@ -622,6 +786,7 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
             IsConnected = false;
         }
         _wake.Dispose();
+        _stopEvent.Dispose();
         return ValueTask.CompletedTask;
     }
 }

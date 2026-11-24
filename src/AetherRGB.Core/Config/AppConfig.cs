@@ -63,6 +63,10 @@ public sealed class MsiMysticLightConfig
     /// über "Direct Lighting Control" steuern. Aus = jeder Anschluss zeigt eine Mischfarbe.</summary>
     public bool SdkPerLed { get; set; } = true;
 
+    /// <summary>Nur für <see cref="MsiBackend.MysticLightSdk"/> mit <see cref="SdkPerLed"/>: nur die laut
+    /// LED-Anordnung belegten LEDs senden, der Rest des Headers wird einmal schwarz gesetzt.</summary>
+    public bool SdkSendOnlyUsedLeds { get; set; } = true;
+
     /// <summary>Nur für <see cref="MsiBackend.DirectHid"/>: LED-Anzahl der Sammelzone.</summary>
     public int LedCountOverride { get; set; } = 1;
 

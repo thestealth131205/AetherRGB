@@ -29,10 +29,17 @@ oder Telemetrie.
     **nicht mitgeliefert**: Lade das SDK bei MSI herunter und lege die DLL in den Programmordner,
     nach `%APPDATA%\AetherRGB` oder gib den Pfad in den Einstellungen an. ARGB-Anschlüsse
     (PCH, JRAINBOW bis 100 LEDs) werden über „Direct Lighting Control“ LED für LED gesteuert,
-    12-V-RGB (JRGB) mit einer Farbe. Die Bildrate ist begrenzt (Standard 15 Updates/s, einstellbar, bei Problemen automatisch niedriger),
-    weil zu schnelle Aufrufe den Board-Controller zum Absturz bringen.
+    12-V-RGB (JRGB) mit einer Farbe. Die Bildrate ist begrenzt (Standard 15 Updates/s, einstellbar bis 60, bei Problemen automatisch niedriger),
+    weil zu schnelle Aufrufe den Board-Controller zum Absturz bringen. Ein Aufruf dauert je Anschluss ~30 ms;
+    die Farben werden erst unmittelbar vor jedem Aufruf berechnet, damit die Bewegung trotz niedriger Rate
+    gleichmäßig bleibt. Belegt die LED-Anordnung nur einen Teil eines JRAINBOW-Headers, werden nur diese LEDs gesendet.
   - **Eigene Variante (direkt per USB/HID)**: ohne MSI Center und ohne DLL, experimentell
     (vorher MSI Center beenden und den sicheren Einzel-LED-Test machen).
+
+- **Eigene Effekte** (im Aufbau): `.aeffect`-Dateien in `%APPDATA%\AetherRGB\effects` erscheinen
+  automatisch in der Effekt-Auswahl. Ein Effekt besteht aus Ebenen (gemalt, auch als Daumenkino, oder
+  Formen wie Kreis/Ring/Rechteck), deren Position, Größe, Drehung, Deckkraft und Farbton über Keyframes
+  animiert werden. Der Effekt-Editor zum Malen und Animieren folgt.
 
 ## Architektur
 

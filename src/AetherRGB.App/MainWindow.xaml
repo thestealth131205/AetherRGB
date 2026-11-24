@@ -140,11 +140,15 @@
                                         <TextBlock Text="Max. Farb-Updates pro Sekunde:" VerticalAlignment="Center" Margin="0,0,8,0" />
                                         <TextBox x:Name="MsiSdkRateBox" Width="60" />
                                     </StackPanel>
-                                    <TextBlock Text="Standard 15. Meldet der MSI-Dienst Fehler oder hängt der Controller (Board-LEDs flackern, Windows meldet USB trennen/verbinden), senkt AetherRGB das Tempo automatisch und hebt es nach 30 s ohne Probleme wieder an. Kommt das oft vor, den Wert hier dauerhaft senken."
+                                    <TextBlock Text="Standard 15, höchstens 60. Ein Aufruf dauert je Anschluss ~30 ms, mit 3 Anschlüssen sind also ~10 Runden/s die Obergrenze. Meldet der MSI-Dienst Fehler oder hängt der Controller (Board-LEDs flackern, Windows meldet USB trennen/verbinden), senkt AetherRGB das Tempo automatisch und hebt es nach 30 s ohne Probleme wieder an. Kommt das oft vor, den Wert hier dauerhaft senken."
                                                Style="{StaticResource MutedText}" TextWrapping="Wrap" />
                                     <CheckBox x:Name="MsiSdkPerLedCheck" Margin="0,12,0,4"
                                               Content="ARGB-Anschlüsse LED für LED steuern (Direct Lighting Control)" />
                                     <TextBlock Text="PCH (6 LEDs) und JRAINBOW (WS2812-Strips, bis 100 LEDs) zeigen dann den Effekt pro LED. Die tatsächliche Strip-Länge legst du über die LED-Anordnung des Geräts fest. Aus = jeder Anschluss zeigt eine Mischfarbe."
+                                               Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                                    <CheckBox x:Name="MsiSdkUsedLedsCheck" Margin="0,12,0,4"
+                                              Content="Nur die belegten LEDs senden" />
+                                    <TextBlock Text="Belegt die LED-Anordnung z. B. 20 von 100 LEDs eines JRAINBOW-Anschlusses, werden die übrigen einmal schwarz gesetzt und danach nur noch die 20 gesendet. Lehnt das Board das ab, sendet AetherRGB automatisch wieder alle LEDs."
                                                Style="{StaticResource MutedText}" TextWrapping="Wrap" />
                                 </StackPanel>
 

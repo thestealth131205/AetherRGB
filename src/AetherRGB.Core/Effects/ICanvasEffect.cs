@@ -46,24 +46,29 @@ public sealed class CanvasRainbowWaveEffect : ICanvasEffect
     {
         double normalizedX = canvasWidth <= 0 ? 0 : x / canvasWidth;
         double phase = elapsed.TotalSeconds * _speedHz * 360.0;
-        double hue = (phase + normalizedX * _scalePerAxis) % 360.0;
-        if (hue < 0) hue += 360.0;
-        return HsvToRgb(hue, 1.0, 1.0);
+        return SmoothHueToRgb(phase + normalizedX * _scalePerAxis);
     }
 
-    internal static RgbColor HsvToRgb(double h, double s, double v)
+    /// <summary>Regenbogenfarbe für einen Farbton (0..360°) mit gleichbleibender Lichtmenge. Jeder Kanal
+    /// hat sein Maximum bei seinem Farbton (Rot 0°, Grün 120°, Blau 240°) und blendet über cos² zum
+    /// Nachbarn über — zwei benachbarte Kanäle ergeben dabei immer zusammen 100 %. Das klassische HSV
+    /// schaltet dagegen bei Gelb/Cyan/Magenta zwei Kanäle voll ein (doppelte Lichtmenge an der LED,
+    /// sichtbar als heller Streifen) und hat alle 60° einen Knick, der auf dem Strip als harte Kante
+    /// auffällt. Die LEDs setzen die Werte linear in Licht um, deshalb wird ohne Gamma gerechnet.</summary>
+    internal static RgbColor SmoothHueToRgb(double hue)
     {
-        double c = v * s;
-        double x = c * (1 - Math.Abs((h / 60.0 % 2) - 1));
-        double m = v - c;
-        double r, g, b;
-        if (h < 60) { r = c; g = x; b = 0; }
-        else if (h < 120) { r = x; g = c; b = 0; }
-        else if (h < 180) { r = 0; g = c; b = x; }
-        else if (h < 240) { r = 0; g = x; b = c; }
-        else if (h < 300) { r = x; g = 0; b = c; }
-        else { r = c; g = 0; b = x; }
-        return new RgbColor((byte)((r + m) * 255), (byte)((g + m) * 255), (byte)((b + m) * 255));
+        hue %= 360.0;
+        if (hue < 0) hue += 360.0;
+        return new RgbColor(Channel(hue, 0), Channel(hue, 120), Channel(hue, 240));
+    }
+
+    private static byte Channel(double hue, double center)
+    {
+        double d = Math.Abs(hue - center);
+        if (d > 180) d = 360 - d;
+        if (d >= 120) return 0;
+        double w = Math.Cos(d * 0.75 * Math.PI / 180.0); // 0° → 1, 120° → 0
+        return (byte)Math.Round(w * w * 255.0);
     }
 }
 

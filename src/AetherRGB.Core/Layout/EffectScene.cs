@@ -13,7 +13,7 @@ public sealed class EffectScene
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "Effekt";
-    public string EffectId { get; set; } = EffectCatalog.All[0].Id;
+    public string EffectId { get; set; } = EffectCatalog.BuiltIn[0].Id;
     public bool IsRunning { get; set; } = true;
 
     /// <summary>Layout-Helligkeit 0..100 % — gilt für alle Geräte dieser Szene.</summary>
@@ -35,7 +35,7 @@ public sealed class EffectScene
     private TimeSpan _effectTime, _lastGlobal;
     private bool _clockStarted;
     private ICanvasEffect? _effect;
-    private string? _effectInstanceKey;
+    private EffectDescriptor? _effectDescriptor;
 
     /// <summary>Die Farben für <see cref="EffectId"/>: gespeicherte Werte, fehlende/ungültige durch die
     /// Standardfarben des Effekts ersetzt.</summary>
@@ -53,7 +53,7 @@ public sealed class EffectScene
             var colors = ResolveColors(descriptor).Select(c => c.ToHex()).ToList();
             colors[slot] = color.ToHex();
             EffectColors[descriptor.Id] = colors;
-            _effectInstanceKey = null;
+            _effectDescriptor = null;
         }
     }
 
@@ -116,7 +116,7 @@ public sealed class EffectScene
     }
 
     /// <summary>Laufende Effektinstanz passend zu <see cref="EffectId"/> und den gewählten Farben — wird bei
-    /// Wechsel neu erzeugt. Wird gleichzeitig vom Engine-Timer und der UI gelesen, daher gesperrt.</summary>
+    /// Wechsel neu erzeugt. Ist ein eigener Effekt nicht (mehr) vorhanden, läuft die Regenbogen-Welle. Wird gleichzeitig vom Engine-Timer und der UI gelesen, daher gesperrt.</summary>
     [JsonIgnore]
     public ICanvasEffect Effect
     {
@@ -124,11 +124,13 @@ public sealed class EffectScene
         {
             lock (_effectLock)
             {
-                if (_effect is null || _effectInstanceKey != EffectId)
+                // Neu erzeugen bei anderem Effekt, anderen Farben oder neu geladenem eigenem Effekt
+                // (der Katalog liefert dann einen neuen Descriptor).
+                var descriptor = EffectCatalog.Get(EffectId);
+                if (_effect is null || !ReferenceEquals(_effectDescriptor, descriptor))
                 {
-                    var descriptor = EffectCatalog.Get(EffectId);
                     _effect = descriptor.Create(ResolveColors(descriptor));
-                    _effectInstanceKey = EffectId;
+                    _effectDescriptor = descriptor;
                 }
                 return _effect;
             }
