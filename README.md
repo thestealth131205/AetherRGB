@@ -102,7 +102,28 @@ Ebenen, Animations-Vorlagen und Keyframes. Die platzierten Geräte liegen zur Or
   Einstellungen). Normal über `HKCU\...\Run`; mit dem Mystic Light SDK (braucht Adminrechte) über eine
   Aufgabe „AetherRGB“ in der Aufgabenplanung mit höchsten Privilegien, damit keine UAC-Abfrage kommt.
   Es läuft immer nur eine Instanz; ein zweiter Start holt das vorhandene Fenster nach vorn.
-- **Spiele per Razer Chroma** (Fortnite, Apex, Overwatch, Cyberpunk, Warframe …): AetherRGB nimmt die
+- **Bildschirm-Sync** (anti-cheat-sicher, auch für Fortnite): AetherRGB liest nur das fertige Bild
+  eines Monitors über die Windows-Bildschirmaufnahme (Desktop Duplication wie OBS, notfalls GDI) — kein
+  Code im Spiel, kein Speicherzugriff. Die Aufnahme läuft nur, solange ein Bildschirm-Effekt aktiv ist,
+  und immer nur für **einen** Monitor (wählbar oder automatisch der Monitor des Spiels im Vordergrund).
+  - **Bildschirm – Mischfarbe**: eine Farbe für alles. **Bildschirm – Bild (Ambilight)**: jede LED zeigt
+    die Farbe an ihrer Stelle des Bildes.
+  - **Bildschirm – Spiel-Profil**: Bereiche auf dem Bild mit Regeln — *Mischfarbe*, *Farbanteil*
+    (z. B. Sturm in der Minimap), *Balken-Füllstand* (Leben, Schild), *Farb-Blitz*, *Wert fällt → Blitz*
+    (Leben + Schild = Schaden) und *HUD-Prüfung* (in Menü/Lobby pausieren die Regeln). Jede Regel wirkt
+    als Ebene auf einen Zielbereich der Effekt-Fläche: einfärben, als Balken, mit Farbskala, Pulsieren
+    bei wenig Leben, Blitzdauer.
+  - **Bereichs-Editor** (Einstellungen → Bildschirm-Sync): Standbild vom Monitor (auch mit 5 s Verzögerung,
+    um ins Spiel zu wechseln), Screenshot-Datei (bei zwei Monitoren nebeneinander wird eine Hälfte
+    gewählt) oder live; Rechtecke aufziehen, Farben per Pipette, Messwerte und LED-Vorschau sofort.
+    Profile liegen als JSON in `%APPDATA%\AetherRGB\screen-profiles`, mit Prozessname wird ein Profil
+    automatisch aktiv, wenn das Spiel im Vordergrund läuft.
+  - **Fortnite-Vorlage**: Lebensbalken als Farbskala rot → gelb → grün (pulsiert unter 25 %), Schild als
+    blauer Schimmer, Sturm in der Minimap als Lila, roter Blitz bei Schaden. Gemessen in 1920 × 1080 mit
+    Standard-HUD; bei anderem HUD-Layout die Bereiche im Editor verschieben.
+  - Grenzen: Bei exklusivem Vollbild kann GDI Schwarz liefern („Fenstermodus-Vollbild“ wählen), HDR kann
+    Farben verfälschen, Fehlauslöser durch gleichfarbige Effekte im Spiel sind möglich.
+- **Spiele per Razer Chroma** (Apex, Overwatch, Cyberpunk, Warframe …): AetherRGB nimmt die
   Lichteffekte entgegen, die Spiele eigentlich an Razer schicken, und zeigt sie im Effekt
   „Spiel (Razer Chroma) – Tastaturbild“ (das 6×22-Tastenraster über die ganze Fläche gelegt) oder
   „– Mischfarbe“ (eine Farbe, bevorzugt aus Chroma Link). Ohne Spiel läuft die Regenbogen-Welle.
@@ -115,19 +136,22 @@ Ebenen, Animations-Vorlagen und Keyframes. Die platzierten Geräte liegen zur Or
     Effekt unverändert per UDP an `127.0.0.1:34535` weiter, alles Weitere passiert in AetherRGB.
     **Anti-Cheat:** Die DLL läuft im Spielprozess und ist nicht von Razer signiert. Spiele mit Easy
     Anti-Cheat oder BattlEye können den Start verweigern („Untrusted system file“) oder Chroma
-    abschalten; Spiele, die die Razer-Signatur der DLL prüfen, nutzen sie gar nicht.
+    abschalten; Spiele, die die Razer-Signatur der DLL prüfen, nutzen sie gar nicht. **Fortnite** gehört
+    dazu: Es lädt Razers signierte Chroma-Editor-Bibliothek (`CChromaEditorLibrary64.dll`) und meldet ohne
+    sie Fehler 6023 — dafür ist der Bildschirm-Sync da.
 
 ## Architektur
 
 ```
-AetherRGB.Core                 Geräte-Abstraktion (IDeviceProvider), Effekt-Engine, Konfiguration
+AetherRGB.Core                 Geräte-Abstraktion (IDeviceProvider), Effekt-Engine, Konfiguration,
+                                Bildschirm-Sync-Analyse (Core/Screen: Bereiche, Regeln, Profile)
 AetherRGB.Providers.OpenRGB     Motherboard-ARGB via OpenRGB-SDK-Protokoll
 AetherRGB.Providers.Wled        WLED-Geräte via UDP-Echtzeit + JSON-API
 AetherRGB.Providers.HomeAssistant  Home-Assistant-Lichter als Ziel UND als Quelle
 AetherRGB.Providers.MsiMysticLight MSI-RGB via offiziellem Mystic Light SDK oder direkt per USB/HID
 AetherRGB.Api                   Lokale REST-API (nur 127.0.0.1) und Chroma-REST-Nachbau (localhost:54235)
 native/ChromaBridge             Ersatz-RzChromaSDK64.dll (C) → UDP an AetherRGB
-AetherRGB.App                   WPF-Hauptanwendung
+AetherRGB.App                   WPF-Hauptanwendung, Bildschirmaufnahme (DXGI/GDI, Vortice) und Bereichs-Editor
 ```
 
 ## Build

@@ -11,6 +11,7 @@ using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 using AetherRGB.Api;
 using AetherRGB.Core.Chroma;
+using AetherRGB.Core.Screen;
 using AetherRGB.Core.Config;
 using AetherRGB.Core.Devices;
 using AetherRGB.Core.Diagnostics;
@@ -42,6 +43,10 @@ public partial class MainWindow : Window
     private readonly CustomEffectStore _customEffects = new();
     private LocalApiHost? _api;
     private ChromaRestServer? _chromaRest;
+    private readonly ScreenProfileStore _screenProfiles = new();
+    private ScreenCaptureService? _screenCapture;
+    private ScreenRegionEditorWindow? _screenEditor;
+    private readonly System.Windows.Threading.DispatcherTimer _screenStatusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private ChromaBridgeListener? _chromaBridge;
     private MsiMysticLightDeviceProvider? _msiProvider;
     private readonly MsiBoardInfo? _msiBoard = MsiBoardDetector.Detect();
@@ -91,8 +96,11 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { Log("Eigene Effekte konnten nicht geladen werden: " + ExceptionText.Describe(ex), LogLevel.Warning); }
 
+        InitializeScreenSync();
+
         EffectsPanel.LogMessage += Log;
         EffectsPanel.AddWledDevicesAsync = AddWledDevicesAsync;
+        EffectsPanel.OpenScreenSync = OpenScreenEditor;
         EffectsPanel.Initialize(_engine, _scenes, _shapes, _customEffects);
 
         LoadSettingsIntoUi();
@@ -399,6 +407,7 @@ public partial class MainWindow : Window
         LocalApiPortBox.Text = _config.LocalApi.Port.ToString();
         ChromaEnabledCheck.IsChecked = _config.RazerChroma.Enabled;
         UpdateChromaStatus();
+        LoadScreenSettingsIntoUi();
 
         _wledRows.Clear();
         _wledRows.AddRange(_config.WledInstances.Select(w => new WledRow { Name = w.Name, Host = w.Host }));
@@ -462,15 +471,113 @@ public partial class MainWindow : Window
 
         _config.WledInstances = _wledRows.Select(r => new WledInstanceConfig { Name = r.Name, Host = r.Host }).ToList();
         _config.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
+        SaveScreenSettingsFromUi();
         bool chromaChanged = _config.RazerChroma.Enabled != (ChromaEnabledCheck.IsChecked == true);
         _config.RazerChroma.Enabled = ChromaEnabledCheck.IsChecked == true;
 
         _config.Save();
         ApplyAutostart();
         if (chromaChanged) ApplyChroma();
+        ApplyScreenProfiles();
+        _screenCapture?.Reconfigure();
         if (_config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk && OfferElevatedRestart()) return;
         Log("Einstellungen gespeichert. Provider werden neu aufgebaut …");
         await RebuildProvidersAndReconnectAsync();
+    }
+
+    // ===================== Bildschirm-Sync =====================
+
+    private void InitializeScreenSync()
+    {
+        ScreenHub.Shared.Log += (level, msg) => Log(msg, level);
+        _screenProfiles.Log += (level, msg) => Log(msg, level);
+        try
+        {
+            _screenProfiles.LoadAll();
+            Log($"Bildschirm-Sync: {_screenProfiles.Profiles.Count} Profil(e) in {_screenProfiles.Directory}.", LogLevel.Debug);
+        }
+        catch (Exception ex) { Log("Bildschirm-Profile konnten nicht geladen werden: " + ExceptionText.Describe(ex), LogLevel.Warning); }
+        _screenProfiles.Changed += () => Dispatcher.BeginInvoke(() =>
+        {
+            ApplyScreenProfiles();
+            ReloadScreenProfileCombo();
+        });
+        ApplyScreenProfiles();
+
+        try
+        {
+            _screenCapture = new ScreenCaptureService(ScreenHub.Shared, () => _config.ScreenSync);
+            _screenCapture.Log += (level, msg) => Log(msg, level);
+        }
+        catch (Exception ex) { Log("Bildschirmaufnahme konnte nicht gestartet werden: " + ExceptionText.Describe(ex), LogLevel.Error); }
+
+        _screenStatusTimer.Tick += (_, _) =>
+        {
+            if (PageSettings.Visibility == Visibility.Visible) ScreenStatusText.Text = ScreenHub.Shared.Status;
+        };
+        _screenStatusTimer.Start();
+    }
+
+    private void ApplyScreenProfiles() => ScreenHub.Shared.SetProfiles(_screenProfiles.Profiles, _config.ScreenSync.DefaultProfileId);
+
+    private const string ScreenAutoMonitor = "Automatisch (Monitor mit dem Spiel im Vordergrund)";
+
+    private void LoadScreenSettingsIntoUi()
+    {
+        ScreenMonitorCombo.Items.Clear();
+        ScreenMonitorCombo.Items.Add(ScreenAutoMonitor);
+        try { foreach (var m in ScreenCaptureService.GetMonitors()) ScreenMonitorCombo.Items.Add(m); }
+        catch (Exception ex) { Log("Monitore konnten nicht ermittelt werden: " + ExceptionText.Describe(ex), LogLevel.Warning); }
+        var configured = ScreenMonitorCombo.Items.OfType<MonitorInfo>().FirstOrDefault(m => m.DeviceName == _config.ScreenSync.Monitor);
+        if (configured is null && !string.IsNullOrEmpty(_config.ScreenSync.Monitor))
+        {
+            // Monitor gerade nicht angeschlossen — Einstellung trotzdem behalten.
+            configured = new MonitorInfo(_config.ScreenSync.Monitor, 0, 0, 0, 0, false) { Label = _config.ScreenSync.Monitor + " (nicht angeschlossen)" };
+            ScreenMonitorCombo.Items.Add(configured);
+        }
+        ScreenMonitorCombo.SelectedItem = configured ?? (object)ScreenAutoMonitor;
+        ScreenMethodCombo.SelectedIndex = (int)_config.ScreenSync.Method;
+        ScreenFpsBox.Text = _config.ScreenSync.MaxFps.ToString();
+        ReloadScreenProfileCombo();
+        ScreenStatusText.Text = ScreenHub.Shared.Status;
+    }
+
+    private void ReloadScreenProfileCombo()
+    {
+        var selected = (ScreenProfileCombo.SelectedItem as ScreenProfile)?.Id ?? _config.ScreenSync.DefaultProfileId;
+        var items = new List<ScreenProfile> { new() { Id = "", Name = "(keins — nur Mischfarbe)" } };
+        items.AddRange(_screenProfiles.Profiles);
+        ScreenProfileCombo.ItemsSource = items;
+        ScreenProfileCombo.SelectedItem = items.FirstOrDefault(p => p.Id == selected) ?? items[0];
+    }
+
+    private void SaveScreenSettingsFromUi()
+    {
+        _config.ScreenSync.Monitor = ScreenMonitorCombo.SelectedItem is MonitorInfo m ? m.DeviceName : "";
+        _config.ScreenSync.Method = ScreenMethodCombo.SelectedIndex >= 0 ? (ScreenCaptureMethod)ScreenMethodCombo.SelectedIndex : ScreenCaptureMethod.Auto;
+        _config.ScreenSync.MaxFps = int.TryParse(ScreenFpsBox.Text, out var fps) ? Math.Clamp(fps, 5, 60) : _config.ScreenSync.MaxFps;
+        _config.ScreenSync.DefaultProfileId = (ScreenProfileCombo.SelectedItem as ScreenProfile)?.Id ?? "";
+    }
+
+    private void OnScreenEditorClick(object sender, RoutedEventArgs e) => OpenScreenEditor();
+
+    private void OpenScreenEditor()
+    {
+        if (_screenCapture is null)
+        {
+            MessageBox.Show(this, "Die Bildschirmaufnahme läuft nicht (siehe Log).", "AetherRGB", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (_screenEditor is not null)
+        {
+            if (_screenEditor.WindowState == WindowState.Minimized) _screenEditor.WindowState = WindowState.Normal;
+            _screenEditor.Activate();
+            return;
+        }
+        _screenEditor = new ScreenRegionEditorWindow(_screenProfiles, _screenCapture, _config.ScreenSync, ScreenHub.Shared.CurrentProfile?.Id) { Owner = this };
+        _screenEditor.LogMessage += Log;
+        _screenEditor.Closed += (_, _) => _screenEditor = null;
+        _screenEditor.Show();
     }
 
     // ===================== Spiele (Razer Chroma) =====================
@@ -502,6 +609,21 @@ public partial class MainWindow : Window
         catch (System.Net.Sockets.SocketException ex)
         {
             Log($"Razer Chroma: UDP-Port {ChromaBridgeListener.Port} belegt — Spiele über die Bridge-DLL kommen nicht an ({ex.Message}).", LogLevel.Warning);
+        }
+
+        // Spiele wie Fortnite suchen die Chroma-DLL, nicht den REST-Server — ohne installierte DLL kommt von
+        // ihnen nichts an. Das gehört deshalb beim Start ins Log.
+        if (ChromaBridgeInstaller.IsAvailable)
+        {
+            foreach (var (label, path, state) in ChromaBridgeInstaller.GetStatus())
+                Log(state switch
+                {
+                    ChromaBridgeInstaller.FileState.Ours => $"Razer Chroma: {label}: AetherRGB-DLL installiert ({path}).",
+                    ChromaBridgeInstaller.FileState.OursOutdated => $"Razer Chroma: {label}: ältere AetherRGB-DLL ({path}) — in den Einstellungen neu installieren.",
+                    ChromaBridgeInstaller.FileState.Foreign => $"Razer Chroma: {label}: Razer-DLL vorhanden ({path}) — Spiele reden mit Razer Synapse, nicht mit AetherRGB.",
+                    _ => $"Razer Chroma: {label}: keine Chroma-DLL installiert — Spiele, die die DLL suchen, schicken nichts an AetherRGB. " +
+                         "Installieren unter Einstellungen → Spiele (Razer Chroma).",
+                }, state == ChromaBridgeInstaller.FileState.Ours ? LogLevel.Debug : LogLevel.Warning);
         }
 
         var rest = new ChromaRestServer(ChromaHub.Shared);
@@ -536,8 +658,9 @@ public partial class MainWindow : Window
         var answer = MessageBox.Show(this,
             "AetherRGB legt jetzt eine eigene RzChromaSDK64.dll nach C:\\Windows\\System32 (und RzChromaSDK.dll nach SysWOW64). " +
             "Spiele mit Razer-Chroma-Unterstützung laden sie und schicken ihre Lichteffekte an AetherRGB.\n\n" +
-            "Wichtig: Die DLL läuft im Spielprozess und ist nicht von Razer signiert. Spiele mit Anti-Cheat (Easy Anti-Cheat, BattlEye — " +
-            "auch Fortnite) können deshalb den Start verweigern oder Chroma abschalten; ein Bann ist nicht auszuschließen.\n\n" +
+            "Wichtig: Die DLL läuft im Spielprozess und ist nicht von Razer signiert. Spiele mit Anti-Cheat (Easy Anti-Cheat, BattlEye) " +
+            "können deshalb den Start verweigern oder Chroma abschalten; ein Bann ist nicht auszuschließen. Fortnite nutzt sie nicht " +
+            "(es braucht Razers signierte Chroma-Bibliothek) — dafür ist der Bildschirm-Sync da.\n\n" +
             "Spiele vorher beenden. Fortfahren?",
             "AetherRGB — Razer Chroma", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.Yes) return;
@@ -983,6 +1106,8 @@ public partial class MainWindow : Window
     {
         _customEffects.Dispose();
         _engine.Dispose();
+        _screenStatusTimer.Stop();
+        _screenCapture?.Dispose();
         _ = _api?.StopAsync();
         _chromaBridge?.Dispose();
         _ = _chromaRest?.StopAsync();

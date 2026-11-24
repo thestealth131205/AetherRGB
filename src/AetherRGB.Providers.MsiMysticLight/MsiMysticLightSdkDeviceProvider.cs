@@ -26,8 +26,9 @@ namespace AetherRGB.Providers.MsiMysticLight;
 /// Effekt-Bildrate (~30 Runden/s × alle Bereiche) stürzt der Controller ab und meldet sich am USB neu
 /// an (Flackern, Windows-Ton für USB trennen/verbinden, MSI Center setzt danach seinen Stil zurück).
 /// Daher sind die Senderunden auf <see cref="MaxUpdatesPerSecond"/> gedrosselt (Standard 10 — am B550 mit 3 Anschlüssen ohnehin die Grenze und dort stabil). Meldet der Dienst
-/// Fehler, setzt er den Stil zurück oder hängen Aufrufe, regelt der Sende-Thread das Tempo selbst herunter und
-/// tastet sich nach einer stabilen Phase wieder an den eingestellten Wert heran.
+/// mehrere Fehler oder langsame Aufrufe kurz hintereinander, setzt er den Stil zurück oder hängt ein Aufruf,
+/// regelt der Sende-Thread das Tempo selbst herunter und tastet sich nach einer stabilen Phase wieder an den
+/// eingestellten Wert heran. Einzelne Ausreißer (gelegentliches -101, kurzer Hänger bei Systemlast) bremsen nicht.
 ///
 /// Ein Aufruf dauert am B550 sehr gleichmäßig ~31 ms. Der Sende-Thread läuft deshalb auf festen
 /// Rundenterminen ab Rundenbeginn (eine Runde mit 3 Anschlüssen dauert allein schon ~93 ms) und holt sich
@@ -87,6 +88,10 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
         /// Nur dann dürfen Teillisten gesendet werden, ohne dass alte Farben hinten stehen bleiben.</summary>
         public int BlackFrom { get; set; } = int.MaxValue;
         public bool SubsetRejected { get; set; }
+        /// <summary>Wie oft in Folge die Teilliste scheiterte, die komplette Liste direkt danach aber klappte.
+        /// Erst ab <see cref="SubsetRejectAfter"/> gilt die Teilliste als abgelehnt — ein einzelnes -101 kommt
+        /// auch bei kompletten Listen gelegentlich vor und ist kein Beweis.</summary>
+        public int SubsetFailures { get; set; }
         /// <summary>Teilliste der <see cref="SendNames"/> für die zuletzt benutzte Anzahl belegter LEDs.</summary>
         public string[]? SubsetNames { get; set; }
 
@@ -472,13 +477,20 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
 
     /// <summary>Dauert ein Aufruf länger, hängt der Dienst vermutlich am neu verbundenen Controller.</summary>
     private static readonly TimeSpan SlowCall = TimeSpan.FromMilliseconds(500);
+    /// <summary>So lange hängt ein Aufruf nur, wenn der Controller wirklich neu verbindet — dann Pause.</summary>
+    private static readonly TimeSpan HungCall = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ErrorPause = TimeSpan.FromSeconds(2);
+    /// <summary>Einzelne Ausreißer (ein -101, ein langsamer Aufruf bei kurzer Systemlast, z. B. Spielstart)
+    /// bremsen nicht — erst so viele Probleme innerhalb von <see cref="ProblemWindow"/>.</summary>
+    private const int ProblemsBeforeSlowdown = 3;
+    private static readonly TimeSpan ProblemWindow = TimeSpan.FromSeconds(10);
+    private const int SubsetRejectAfter = 3;
     private static readonly TimeSpan StatsInterval = TimeSpan.FromSeconds(30);
 
     /// <summary>Unter dieses Tempo regelt die automatische Drosselung nie herunter.</summary>
     private const double MinAdaptiveRate = 2;
     /// <summary>So lange ohne Probleme, bevor das Tempo wieder um einen Schritt steigt.</summary>
-    private static readonly TimeSpan RateRecoveryAfter = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan RateRecoveryAfter = TimeSpan.FromSeconds(15);
 
     private void SendLoop()
     {
@@ -496,6 +508,7 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
         int rounds = 0, calls = 0, failures = 0, restyles = 0, slowCalls = 0;
         double totalMs = 0, maxMs = 0, sumGap = 0, sumGapSq = 0;
         int gaps = 0;
+        var recentProblems = new Queue<TimeSpan>();
 
         while (!_stopping)
         {
@@ -520,7 +533,8 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
                 sumGap += gap; sumGapSq += gap * gap; gaps++;
             }
 
-            bool sentAny = false, pause = false, unstable = false;
+            bool sentAny = false, pause = false;
+            int problemsThisRound = 0;
             // Feste Reihenfolge (wie vom SDK gemeldet), damit jeder Anschluss gleichmäßig drankommt.
             var keys = _areas.Keys.Where(k => _sources.ContainsKey(k) || _pending.ContainsKey(k)).ToList();
             foreach (var key in keys)
@@ -559,13 +573,20 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
                             }
                             if (subset && rc != MysticLightSdkNative.MLAPI_OK)
                             {
-                                // Das Board nimmt keine Teilliste an — ab jetzt immer alle LEDs dieses Anschlusses senden.
-                                area.SubsetRejected = subsetRejectedNow = true;
-                                Log?.Invoke(LogLevel.Warning, $"Mystic Light SDK: {area.Type} „{area.Name}“: Teilliste mit {used} von {area.LedNames.Length} LEDs " +
-                                                              $"abgelehnt ({_sdk.Describe(rc)}) — sende ab jetzt immer alle LEDs.");
+                                // Teilliste gescheitert → diesmal komplett senden. Nur wenn das wiederholt klappt,
+                                // während die Teilliste scheitert, nimmt das Board wirklich keine Teilliste an.
+                                int subsetRc = rc;
                                 subset = false;
+                                subsetRejectedNow = true;
                                 rc = SendPerLed(area, frame, used, subset);
+                                if (rc == MysticLightSdkNative.MLAPI_OK && ++area.SubsetFailures >= SubsetRejectAfter)
+                                {
+                                    area.SubsetRejected = true;
+                                    Log?.Invoke(LogLevel.Warning, $"Mystic Light SDK: {area.Type} „{area.Name}“: Teilliste mit {used} von {area.LedNames.Length} LEDs " +
+                                                                  $"{SubsetRejectAfter}× in Folge abgelehnt ({_sdk.Describe(subsetRc)}) — sende ab jetzt immer alle LEDs.");
+                                }
                             }
+                            else if (subset) area.SubsetFailures = 0;
                         }
                     }
                     else
@@ -599,8 +620,13 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
                 area.StatMaxMs = Math.Max(area.StatMaxMs, ms);
                 area.AverageCallMs = area.AverageCallMs <= 0 ? ms : area.AverageCallMs * 0.9 + ms * 0.1;
                 // Kam der Stil-Neusatz nur von der abgelehnten Teilliste, ist der Controller nicht instabil.
-                if (restyled && !subsetRejectedNow) { restyles++; unstable = true; }
-                if (ms > SlowCall.TotalMilliseconds) { slowCalls++; pause = unstable = true; }
+                // Neu gesetzter Stil = Controller war weg → Pause. Hängende Aufrufe ebenso.
+                if (restyled && !subsetRejectedNow) { restyles++; problemsThisRound++; pause = true; }
+                if (ms > SlowCall.TotalMilliseconds)
+                {
+                    slowCalls++; problemsThisRound++;
+                    if (ms > HungCall.TotalMilliseconds) pause = true;
+                }
 
                 if (rc == MysticLightSdkNative.MLAPI_OK)
                 {
@@ -613,8 +639,10 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
                 }
                 else
                 {
+                    // Ein schneller Fehler ist meist ein Ausreißer des Dienstes — nächste Runde einfach neu
+                    // senden, ohne Pause (die 2 s Stillstand wären sichtbarer als der eine verlorene Frame).
                     failures++;
-                    pause = unstable = true;
+                    problemsThisRound++;
                     _lastSent.Remove(key);
                     area.BlackFrom = int.MaxValue;
                     if (_failedAreas.Add(key))
@@ -624,10 +652,15 @@ public sealed class MsiMysticLightSdkDeviceProvider : IDeviceProvider, IProvider
             }
             if (sentAny) { rounds++; lastRoundStart = roundStart; }
 
-            // Automatische Drosselung: Probleme → Tempo senken; lange genug stabil → wieder anheben.
-            if (unstable)
+            // Automatische Drosselung: gehäufte Probleme oder Controller-Neustart → Tempo senken;
+            // lange genug stabil → wieder anheben. Einzelne Ausreißer bremsen nicht.
+            var now = clock.Elapsed;
+            for (int i = 0; i < problemsThisRound; i++) recentProblems.Enqueue(now);
+            while (recentProblems.Count > 0 && now - recentProblems.Peek() > ProblemWindow) recentProblems.Dequeue();
+            if (problemsThisRound > 0) stableSince = now;
+            if (pause || recentProblems.Count >= ProblemsBeforeSlowdown)
             {
-                stableSince = clock.Elapsed;
+                recentProblems.Clear();
                 if (rate > MinAdaptiveRate)
                 {
                     rate = Math.Max(MinAdaptiveRate, Math.Floor(rate * 0.6));

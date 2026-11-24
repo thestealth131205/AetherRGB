@@ -433,7 +433,17 @@ public partial class EffectsView : UserControl
         }
 
         if (descriptor.IsAnimated) AddSpeedControl(scene, descriptor);
+
+        if (descriptor.Id.StartsWith("screen-", StringComparison.Ordinal))
+        {
+            var regions = new Button { Content = "🖥  Bildschirm-Sync …", ToolTip = "Monitor, Spiel-Profile und Bereiche (Leben, Sturm, Schaden …) einstellen" };
+            regions.Click += (_, _) => OpenScreenSync?.Invoke();
+            EffectColorPanel.Children.Add(regions);
+        }
     }
+
+    /// <summary>Öffnet den Bereichs-Editor des Bildschirm-Syncs (setzt das Hauptfenster).</summary>
+    public Action? OpenScreenSync { get; set; }
 
     private void AddSpeedControl(EffectScene scene, EffectDescriptor descriptor)
     {

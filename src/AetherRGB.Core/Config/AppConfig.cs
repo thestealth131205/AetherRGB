@@ -37,6 +37,32 @@ public sealed class RazerChromaConfig
     public bool Enabled { get; set; } = true;
 }
 
+public enum ScreenCaptureMethod
+{
+    /// <summary>Desktop Duplication, bei Fehlern GDI.</summary>
+    Auto,
+    /// <summary>Nur Desktop Duplication (DXGI) — wie OBS „Bildschirmaufnahme“.</summary>
+    DesktopDuplication,
+    /// <summary>Nur GDI (BitBlt) — langsamer, aber auch dort, wo DXGI nicht geht. Zeigt bei exklusivem Vollbild oft Schwarz.</summary>
+    Gdi,
+}
+
+/// <summary>Bildschirm-Sync: liest nur das fertige Bild eines Monitors über die Windows-Bildschirmaufnahme.</summary>
+public sealed class ScreenSyncConfig
+{
+    /// <summary>Gerätename des Monitors (z. B. <c>\\.\DISPLAY1</c>), leer = automatisch der Monitor mit dem Fenster im Vordergrund.</summary>
+    public string Monitor { get; set; } = "";
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ScreenCaptureMethod Method { get; set; } = ScreenCaptureMethod.Auto;
+
+    /// <summary>Höchstens so viele Bilder pro Sekunde aufnehmen und auswerten.</summary>
+    public int MaxFps { get; set; } = 30;
+
+    /// <summary>Profil, wenn kein Spiel mit eigenem Profil im Vordergrund läuft.</summary>
+    public string DefaultProfileId { get; set; } = "fortnite";
+}
+
 public sealed class LocalApiConfig
 {
     public bool Enabled { get; set; } = true;
@@ -102,6 +128,7 @@ public sealed class AppConfig
     public LocalApiConfig LocalApi { get; set; } = new();
     public RazerChromaConfig RazerChroma { get; set; } = new();
     public MsiMysticLightConfig MsiMysticLight { get; set; } = new();
+    public ScreenSyncConfig ScreenSync { get; set; } = new();
     public bool CheckForUpdatesOnStartup { get; set; } = true;
 
     /// <summary>Beim Anmelden an Windows minimiert (im Tray) starten. Standard an — fehlt in Dateien bis

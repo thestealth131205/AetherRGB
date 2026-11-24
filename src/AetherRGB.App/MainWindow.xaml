@@ -231,11 +231,49 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Bildschirm-Sync -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="Bildschirm-Sync" FontWeight="SemiBold" />
+                                <TextBlock Text="Liest nur das fertige Bild eines Monitors über die Windows-Bildschirmaufnahme (wie OBS oder Discord beim Teilen) — kein Code im Spiel, kein Zugriff auf den Spielspeicher, deshalb anti-cheat-sicher. Im Effekt-Fenster „Bildschirm – Mischfarbe“, „– Bild (Ambilight)“ oder „– Spiel-Profil“ wählen. Die Aufnahme läuft nur, solange einer dieser Effekte aktiv ist."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="190" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Text="Monitor" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="ScreenMonitorCombo" Grid.Row="0" Grid.Column="1" MaxWidth="420" HorizontalAlignment="Left" MinWidth="320" Margin="0,0,0,6" />
+                                    <TextBlock Grid.Row="1" Text="Standard-Profil" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="ScreenProfileCombo" Grid.Row="1" Grid.Column="1" DisplayMemberPath="Name" MaxWidth="420" HorizontalAlignment="Left" MinWidth="320" Margin="0,0,0,6"
+                                              ToolTip="Gilt, solange kein Spiel mit eigenem Profil (Prozessname) im Vordergrund läuft" />
+                                    <TextBlock Grid.Row="2" Text="Aufnahme-Methode" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="ScreenMethodCombo" Grid.Row="2" Grid.Column="1" MaxWidth="420" HorizontalAlignment="Left" MinWidth="320" Margin="0,0,0,6">
+                                        <ComboBoxItem Content="Automatisch (Desktop Duplication, sonst GDI)" />
+                                        <ComboBoxItem Content="Nur Desktop Duplication" />
+                                        <ComboBoxItem Content="Nur GDI (langsamer, Vollbild oft schwarz)" />
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="3" Text="Max. Bilder pro Sekunde" VerticalAlignment="Center" />
+                                    <TextBox x:Name="ScreenFpsBox" Grid.Row="3" Grid.Column="1" Width="80" HorizontalAlignment="Left" ToolTip="5–60, Standard 30" />
+                                </Grid>
+                                <TextBlock x:Name="ScreenStatusText" TextWrapping="Wrap" Margin="0,10,0,8" />
+                                <Button Content="🖥  Bereiche und Profile bearbeiten …" HorizontalAlignment="Left" Click="OnScreenEditorClick" />
+                                <TextBlock Text="„Automatisch“ nimmt den Monitor, auf dem das Fenster im Vordergrund liegt — bedienst du AetherRGB auf dem zweiten Monitor, bleibt der des Spiels gewählt. Bei exklusivem Vollbild im Spiel möglichst „Fenstermodus-Vollbild“ (randlos) wählen; HDR kann die Farben verfälschen."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+
                         <!-- Spiele (Razer Chroma) -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
                                 <CheckBox x:Name="ChromaEnabledCheck" Content="Spiele per Razer Chroma empfangen" FontWeight="SemiBold" />
-                                <TextBlock Text="Spiele mit Razer-Chroma-Unterstützung (z. B. Fortnite, Apex, Overwatch, Cyberpunk, Warframe) schicken ihre Lichteffekte zu Ereignissen wie Schaden oder Sturm an AetherRGB statt an Razer. Im Effekt-Fenster dafür „Spiel (Razer Chroma) – Tastaturbild“ oder „– Mischfarbe“ wählen. Ohne laufendes Spiel zeigt der Effekt die Regenbogen-Welle. Alles bleibt auf diesem PC."
+                                <TextBlock Text="Spiele mit Razer-Chroma-Unterstützung schicken ihre Lichteffekte zu Ereignissen wie Schaden oder Sturm an AetherRGB statt an Razer. Im Effekt-Fenster dafür „Spiel (Razer Chroma) – Tastaturbild“ oder „– Mischfarbe“ wählen. Ohne laufendes Spiel zeigt der Effekt die Regenbogen-Welle. Alles bleibt auf diesem PC. Fortnite geht so nicht (es braucht Razers signierte Chroma-Bibliothek) — dafür den Bildschirm-Sync oben nutzen."
                                            Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
                                 <TextBlock x:Name="ChromaStatusText" TextWrapping="Wrap" Foreground="{StaticResource BrushText}" Margin="0,0,0,10" />
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
@@ -245,7 +283,7 @@
                                 <TextBlock Text="Die meisten Spiele laden dafür die Datei RzChromaSDK64.dll aus C:\Windows\System32. AetherRGB legt dort eine eigene, kleine DLL ab, die die Farben nur an AetherRGB weiterreicht (Adminrechte nötig). Ist Razer Synapse installiert, bleibt dessen DLL unangetastet."
                                            Style="{StaticResource MutedText}" TextWrapping="Wrap" />
                                 <TextBlock TextWrapping="Wrap" Foreground="#F59E0B" Margin="0,8,0,0"
-                                           Text="Achtung Anti-Cheat: Die DLL wird in den Spielprozess geladen. Sie ist nicht von Razer signiert. Spiele mit Easy Anti-Cheat oder BattlEye (auch Fortnite) können deshalb den Start verweigern („Untrusted system file“) oder Chroma abschalten. Ein Bann ist nicht auszuschließen. Bei Problemen die DLL hier wieder entfernen." />
+                                           Text="Achtung Anti-Cheat: Die DLL wird in den Spielprozess geladen. Sie ist nicht von Razer signiert. Spiele mit Easy Anti-Cheat oder BattlEye können deshalb den Start verweigern („Untrusted system file“) oder Chroma abschalten. Ein Bann ist nicht auszuschließen. Bei Problemen die DLL hier wieder entfernen." />
                             </StackPanel>
                         </Border>
 

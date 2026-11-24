@@ -1,0 +1,126 @@
+<Window x:Class="AetherRGB.App.ScreenRegionEditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AetherRGB — Bildschirm-Sync: Bereiche" Width="1380" Height="860" MinWidth="1100" MinHeight="680"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        Background="{StaticResource BrushBackground}" Foreground="{StaticResource BrushText}" FontFamily="Segoe UI"
+        PreviewKeyDown="OnPreviewKeyDown">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="390" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ==== Profil + Bildquelle ==== -->
+        <WrapPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,10">
+            <TextBlock Text="Profil" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox x:Name="ProfileCombo" Width="230" DisplayMemberPath="Name" SelectionChanged="OnProfileComboChanged" Margin="0,0,6,0" />
+            <Button Content="Neu" Margin="0,0,6,0" Click="OnNewProfileClick" ToolTip="Leeres Profil anlegen" />
+            <Button Content="Kopie" Margin="0,0,6,0" Click="OnCopyProfileClick" ToolTip="Dieses Profil als neues Profil kopieren" />
+            <Button Content="Löschen" Margin="0,0,6,0" Click="OnDeleteProfileClick" />
+            <Button x:Name="ResetTemplateButton" Content="Vorlage zurücksetzen" Margin="0,0,6,0" Click="OnResetTemplateClick"
+                    ToolTip="Bereiche wieder auf die mitgelieferten Fortnite-Werte setzen" />
+            <Button x:Name="SaveButton" Content="💾  Speichern" Style="{StaticResource PrimaryButton}" Margin="0,0,24,0" Click="OnSaveClick" ToolTip="Strg+S" />
+
+            <TextBlock Text="Monitor" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,8,0" />
+            <ComboBox x:Name="MonitorCombo" Width="260" Margin="0,0,6,0" />
+            <Button Content="📷  Standbild" Margin="0,0,6,0" Click="OnStillClick" ToolTip="Den gewählten Monitor jetzt aufnehmen" />
+            <Button Content="📷  in 5 s" Margin="0,0,6,0" Click="OnStillDelayedClick"
+                    ToolTip="Aufnahme in 5 Sekunden — Zeit, um ins Spiel zu wechseln" />
+            <Button Content="🖼  Bild laden …" Margin="0,0,6,0" Click="OnLoadImageClick" ToolTip="Screenshot aus einer Datei (PNG/JPG)" />
+            <ToggleButton x:Name="LiveToggle" Content="●  Live" Margin="0,0,0,0" Checked="OnLiveChanged" Unchecked="OnLiveChanged"
+                          ToolTip="Laufende Aufnahme zeigen und die Regeln live auswerten" />
+        </WrapPanel>
+
+        <!-- ==== Werkzeuge ==== -->
+        <WrapPanel Grid.Row="1" Grid.Column="0" Margin="0,0,16,8">
+            <RadioButton x:Name="ToolSelect" Content="↖  Auswählen / Verschieben" GroupName="Tool" IsChecked="True" Foreground="{StaticResource BrushText}" Margin="0,0,16,0" VerticalAlignment="Center" />
+            <RadioButton x:Name="ToolNew" Content="▭  Neuer Bereich (aufziehen)" GroupName="Tool" Foreground="{StaticResource BrushText}" Margin="0,0,16,0" VerticalAlignment="Center" />
+            <RadioButton x:Name="ToolPipette" Content="💧  Pipette (Farbe zum Bereich hinzufügen)" GroupName="Tool" Foreground="{StaticResource BrushText}" Margin="0,0,16,0" VerticalAlignment="Center" />
+            <TextBlock x:Name="CursorText" Style="{StaticResource MutedText}" VerticalAlignment="Center" />
+        </WrapPanel>
+
+        <!-- ==== Bild mit Bereichen + Vorschau ==== -->
+        <Grid Grid.Row="2" Grid.Column="0" Margin="0,0,16,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" CornerRadius="10" Background="#08090C" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" ClipToBounds="True">
+                <Grid>
+                    <Viewbox Stretch="Uniform">
+                        <Grid x:Name="ImageRoot" Width="1920" Height="1080">
+                            <Image x:Name="ShotImage" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" />
+                            <Canvas x:Name="Overlay" Background="Transparent"
+                                    MouseLeftButtonDown="OnOverlayMouseDown" MouseMove="OnOverlayMouseMove"
+                                    MouseLeftButtonUp="OnOverlayMouseUp" MouseRightButtonDown="OnOverlayRightDown" />
+                        </Grid>
+                    </Viewbox>
+                    <TextBlock x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" MaxWidth="560"
+                               Style="{StaticResource MutedText}"
+                               Text="Noch kein Bild. „📷 in 5 s“ drücken und ins Spiel wechseln — oder einen Screenshot mit „🖼 Bild laden …“ öffnen. Die Bereiche werden relativ zum Monitor gespeichert und gelten für jede Auflösung mit gleichem Seitenverhältnis." />
+                </Grid>
+            </Border>
+            <Grid Grid.Row="1" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,14,0">
+                    <TextBlock Text="So sieht die Effekt-Fläche aus" Style="{StaticResource MutedText}" Margin="0,0,0,4" />
+                    <Border BorderBrush="{StaticResource BrushBorder}" BorderThickness="1" CornerRadius="4">
+                        <Image x:Name="CanvasPreview" Width="240" Height="120" Stretch="Fill" RenderOptions.BitmapScalingMode="Linear" />
+                    </Border>
+                </StackPanel>
+                <TextBlock x:Name="AnalysisText" Grid.Column="1" TextWrapping="Wrap" VerticalAlignment="Top" FontFamily="Consolas" FontSize="12" />
+            </Grid>
+        </Grid>
+
+        <!-- ==== Rechte Spalte: Profil, Bereiche, Eigenschaften ==== -->
+        <ScrollViewer Grid.Row="1" Grid.RowSpan="2" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Profil" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <TextBlock Text="Name" Style="{StaticResource MutedText}" />
+                        <TextBox x:Name="ProfileNameBox" Margin="0,2,0,8" TextChanged="OnProfileFieldChanged" />
+                        <TextBlock Text="Spiel (Prozessname ohne .exe) — läuft es im Vordergrund, gilt dieses Profil automatisch" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                        <TextBox x:Name="ProcessNameBox" Margin="0,2,0,8" TextChanged="OnProfileFieldChanged" ToolTip="z. B. FortniteClient-Win64-Shipping" />
+                        <TextBlock Text="Ohne sichtbares HUD (Menü, Lobby, Zuschauen)" Style="{StaticResource MutedText}" />
+                        <ComboBox x:Name="HudHiddenCombo" Margin="0,2,0,8" SelectionChanged="OnProfileFieldChanged">
+                            <ComboBoxItem Content="Mischfarbe des Monitors zeigen" />
+                            <ComboBoxItem Content="LEDs aus" />
+                            <ComboBoxItem Content="Regeln trotzdem anwenden" />
+                        </ComboBox>
+                        <StackPanel x:Name="BaseColorPanel" Orientation="Horizontal" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Bereiche (unten → oben)" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button Content="▲" Width="30" Margin="0,0,4,0" Click="OnRegionUpClick" ToolTip="Nach oben (wird später gezeichnet)" />
+                                <Button Content="▼" Width="30" Margin="0,0,4,0" Click="OnRegionDownClick" />
+                                <Button Content="⧉" Width="30" Margin="0,0,4,0" Click="OnRegionDuplicateClick" ToolTip="Duplizieren" />
+                                <Button Content="✕" Width="30" Click="OnRegionDeleteClick" ToolTip="Löschen (Entf)" />
+                            </StackPanel>
+                        </DockPanel>
+                        <ListBox x:Name="RegionList" Height="170" SelectionChanged="OnRegionSelectionChanged"
+                                 Background="{StaticResource BrushPanelAlt}" BorderBrush="{StaticResource BrushBorder}" Foreground="{StaticResource BrushText}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel x:Name="RegionPanel" />
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

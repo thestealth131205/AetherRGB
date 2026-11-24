@@ -9,10 +9,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AetherRGB.App</RootNamespace>
     <AssemblyName>AetherRGB</AssemblyName>
-    <Version>0.3.9</Version>
-    <AssemblyVersion>0.3.9.0</AssemblyVersion>
-    <FileVersion>0.3.9.0</FileVersion>
+    <Version>0.3.10</Version>
+    <AssemblyVersion>0.3.10.0</AssemblyVersion>
+    <FileVersion>0.3.10.0</FileVersion>
     <Product>AetherRGB</Product>
+    <!-- Bildschirmaufnahme: gemappte DXGI-Textur direkt als Span lesen statt 8 MB pro Bild zu kopieren. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Company>thestealth131205</Company>
     <!-- Logo (erzeugt von tools/make_icon.py): EXE-/Taskleisten-Symbol; WPF-Fenster ohne eigenes
          Icon übernehmen es automatisch. -->
@@ -45,6 +47,11 @@
                       Condition="Exists('..\..\native\ChromaBridge\bin\x64\RzChromaSDK64.dll')" />
     <EmbeddedResource Include="..\..\native\ChromaBridge\bin\x86\RzChromaSDK.dll" LogicalName="ChromaBridge.x86.dll"
                       Condition="Exists('..\..\native\ChromaBridge\bin\x86\RzChromaSDK.dll')" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Bildschirm-Sync: Desktop Duplication (DXGI), wie OBS. MIT-Lizenz. -->
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
   </ItemGroup>
 
   <ItemGroup>
