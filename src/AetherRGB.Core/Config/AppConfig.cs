@@ -29,14 +29,37 @@ public sealed class LocalApiConfig
     public int Port { get; set; } = 34533;
 }
 
-/// <summary>Direkter USB/HID-Treiber für MSI Mystic Light, als Alternative/Ergänzung zum
-/// OpenRGB-Provider — standardmäßig AUS, da das Protokoll für das jeweilige Board noch nicht
-/// verifiziert ist (siehe AetherRGB.Providers.MsiMysticLight). Erst nach erfolgreichem
-/// Einzel-LED-Test über die UI aktivieren.</summary>
+/// <summary>Über welchen Weg AetherRGB ein MSI-Mainboard (Mystic Light) steuert.</summary>
+public enum MsiBackend
+{
+    /// <summary>Noch nicht entschieden — bei erkanntem MSI-Board fragt die App beim Start nach.</summary>
+    Ask,
+    /// <summary>Offizielles MSI Mystic Light SDK: klinkt sich in den laufenden MSI-Center-Dienst
+    /// (LEDKeeper2) ein, saubere Koexistenz mit MSI Center, aber begrenzte Bildrate.</summary>
+    MysticLightSdk,
+    /// <summary>Eigene Variante: direkt per USB/HID, ohne MSI Center (experimentell, siehe
+    /// AetherRGB.Providers.MsiMysticLight).</summary>
+    DirectHid,
+    /// <summary>MSI-Board nicht direkt steuern (z. B. weil es schon über OpenRGB läuft).</summary>
+    Off
+}
+
 public sealed class MsiMysticLightConfig
 {
-    public bool Enabled { get; set; } = false;
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public MsiBackend Backend { get; set; } = MsiBackend.Ask;
+
+    /// <summary>Optionaler Pfad zur MysticLight_SDK(_x64).dll. Leer = im Programmordner und in
+    /// %APPDATA%\AetherRGB suchen. Die DLL wird nicht mitgeliefert (MSI-Lizenz).</summary>
+    public string SdkDllPath { get; set; } = "";
+
+    /// <summary>Nur für <see cref="MsiBackend.DirectHid"/>: LED-Anzahl der Sammelzone.</summary>
     public int LedCountOverride { get; set; } = 1;
+
+    /// <summary>Alter Schalter aus Version ≤ 0.3.0 — wird beim Laden in <see cref="Backend"/>
+    /// übernommen und danach nicht mehr geschrieben.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Enabled { get; set; }
 }
 
 public sealed class AppConfig
@@ -66,7 +89,13 @@ public sealed class AppConfig
             {
                 var json = File.ReadAllText(path);
                 var loaded = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions);
-                if (loaded is not null) return loaded;
+                if (loaded is not null)
+                {
+                    if (loaded.MsiMysticLight.Enabled == true && loaded.MsiMysticLight.Backend == MsiBackend.Ask)
+                        loaded.MsiMysticLight.Backend = MsiBackend.DirectHid;
+                    loaded.MsiMysticLight.Enabled = null;
+                    return loaded;
+                }
             }
         }
         catch

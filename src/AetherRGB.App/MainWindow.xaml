@@ -1,6 +1,7 @@
 <Window x:Class="AetherRGB.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:AetherRGB.App"
         Title="AetherRGB" MinWidth="1180" MinHeight="720"
         Width="1500" Height="880"
         WindowStartupLocation="CenterScreen">
@@ -78,34 +79,8 @@
             </Grid>
 
             <!-- ==== Seite: Effekte und Layout ==== -->
-            <Grid x:Name="PageEffects" Grid.Row="0" Margin="32,28,32,16" Visibility="Collapsed">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-
-                <TextBlock Grid.Row="0" Text="Effekte &amp; Layout" Style="{StaticResource SectionTitle}" />
-
-                <Border Grid.Row="1" Style="{StaticResource Card}">
-                    <StackPanel>
-                        <TextBlock Text="Effekt" Style="{StaticResource MutedText}" Margin="0,0,0,6" />
-                        <StackPanel Orientation="Horizontal">
-                            <ComboBox x:Name="EffectCombo" Width="260" Margin="0,0,10,0" SelectionChanged="OnEffectChanged" />
-                            <Button x:Name="EffectStartButton" Content="Effekt starten" Style="{StaticResource PrimaryButton}" Margin="0,0,8,0" Click="OnEffectStartClick" />
-                            <Button x:Name="EffectStopButton" Content="Effekt stoppen" Click="OnEffectStopClick" />
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <Border Grid.Row="2" Style="{StaticResource Card}" VerticalAlignment="Top">
-                    <StackPanel>
-                        <TextBlock Text="2D-Layout (SignalRGB-Stil)" Style="{StaticResource MutedText}" Margin="0,0,0,6" />
-                        <TextBlock Text="Geräte als Rechtecke auf einer virtuellen Fläche anordnen, drehen und skalieren — genau wie sie im PC-Gehäuse von oben liegen. Effekte laufen über die ganze Fläche; die LEDs jedes Geräts nehmen die Farbe an ihrer Position."
-                                   Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,14" />
-                        <Button x:Name="LayoutButton" Content="Layout bearbeiten" HorizontalAlignment="Left" Click="OnLayoutClick" />
-                    </StackPanel>
-                </Border>
+            <Grid x:Name="PageEffects" Grid.Row="0" Margin="32,24,32,16" Visibility="Collapsed">
+                <local:EffectsView x:Name="EffectsPanel" />
             </Grid>
 
             <!-- ==== Seite: Einstellungen ==== -->
@@ -136,17 +111,43 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- MSI Mystic Light direkt -->
+                        <!-- MSI Mystic Light -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>
-                                <CheckBox x:Name="MsiEnabledCheck" Content="MSI Mystic Light — direkt per USB/HID (ohne OpenRGB)" FontWeight="SemiBold" />
-                                <TextBlock Text="Experimentell, erstmals am MSI MPG B550 Gaming Plus getestet. Nach dem Aktivieren erscheint das Board bei 'Geräte neu suchen'. Vor echten Effekten zuerst den sicheren Einzel-Test unten durchführen."
-                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                                    <TextBlock Text="LED-Anzahl (Sammelzone):" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                    <TextBox x:Name="MsiLedCountBox" Width="80" />
+                                <TextBlock Text="MSI Mystic Light" FontWeight="SemiBold" />
+                                <TextBlock x:Name="MsiBoardText" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+
+                                <RadioButton x:Name="MsiBackendSdk" GroupName="MsiBackend" Foreground="{StaticResource BrushText}" Margin="0,3"
+                                             Content="Offizielles Mystic Light SDK (über MSI Center)" Checked="OnMsiBackendChanged" />
+                                <RadioButton x:Name="MsiBackendHid" GroupName="MsiBackend" Foreground="{StaticResource BrushText}" Margin="0,3"
+                                             Content="Eigene Variante: direkt per USB/HID (experimentell, ohne MSI Center)" Checked="OnMsiBackendChanged" />
+                                <RadioButton x:Name="MsiBackendOff" GroupName="MsiBackend" Foreground="{StaticResource BrushText}" Margin="0,3"
+                                             Content="Nicht direkt steuern (z. B. über OpenRGB)" Checked="OnMsiBackendChanged" />
+
+                                <!-- SDK -->
+                                <StackPanel x:Name="MsiSdkPanel" Margin="0,12,0,0">
+                                    <TextBlock Text="Pfad zur MysticLight_SDK_x64.dll (leer = Programmordner oder %APPDATA%\AetherRGB)" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,6" />
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="MsiSdkPathBox" Grid.Column="0" Margin="0,0,8,0" TextChanged="OnMsiSdkPathChanged" />
+                                        <Button Grid.Column="1" Content="Durchsuchen …" Click="OnMsiSdkBrowseClick" />
+                                    </Grid>
+                                    <TextBlock x:Name="MsiSdkStatusText" TextWrapping="Wrap" Foreground="{StaticResource BrushText}" />
                                 </StackPanel>
-                                <Button x:Name="MsiTestButton" Content="MSI-HID-Test (Einzel-LED, sicher)" HorizontalAlignment="Left" Click="OnMsiTestClick" />
+
+                                <!-- Eigene HID-Variante -->
+                                <StackPanel x:Name="MsiHidPanel" Margin="0,12,0,0">
+                                    <TextBlock Text="Erstmals am MSI MPG B550 Gaming Plus getestet. MSI Center dabei beenden. Vor echten Effekten zuerst den sicheren Einzel-Test machen."
+                                               Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                        <TextBlock Text="LED-Anzahl (Sammelzone):" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBox x:Name="MsiLedCountBox" Width="80" />
+                                    </StackPanel>
+                                    <Button x:Name="MsiTestButton" Content="MSI-HID-Test (Einzel-LED, sicher)" HorizontalAlignment="Left" Click="OnMsiTestClick" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
 

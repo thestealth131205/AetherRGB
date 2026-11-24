@@ -9,12 +9,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AetherRGB.App</RootNamespace>
     <AssemblyName>AetherRGB</AssemblyName>
-    <Version>0.2.0</Version>
-    <AssemblyVersion>0.2.0.0</AssemblyVersion>
-    <FileVersion>0.2.0.0</FileVersion>
+    <Version>0.3.0</Version>
+    <AssemblyVersion>0.3.0.0</AssemblyVersion>
+    <FileVersion>0.3.0.0</FileVersion>
     <Product>AetherRGB</Product>
     <Company>thestealth131205</Company>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Bewusst KEIN InvariantGlobalization: WPF braucht echte Kulturdaten für die Text-Engine
+         (MS.Internal.FontCache.MajorLanguages erzeugt CultureInfo("en") usw.) — im
+         Invariant-Modus wirft das beim ersten TextBlock-Measure eine CultureNotFoundException
+         und die App stürzt direkt beim Start ab. -->
   </PropertyGroup>
 
   <ItemGroup>

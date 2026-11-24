@@ -1,0 +1,63 @@
+<Window x:Class="AetherRGB.App.MsiBackendWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AetherRGB — MSI-Mainboard erkannt" Width="640" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{StaticResource BrushBackground}">
+    <StackPanel Margin="24">
+        <TextBlock Text="MSI-Mainboard erkannt" FontSize="20" FontWeight="SemiBold" Foreground="{StaticResource BrushText}" />
+        <TextBlock x:Name="BoardText" Style="{StaticResource MutedText}" Margin="0,4,0,16" TextWrapping="Wrap" />
+
+        <TextBlock Text="Wie soll AetherRGB die Beleuchtung des Boards steuern?" Foreground="{StaticResource BrushText}" Margin="0,0,0,10" />
+
+        <!-- Offizielles SDK -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <RadioButton x:Name="ChoiceSdk" GroupName="Backend" Foreground="{StaticResource BrushText}" FontWeight="SemiBold"
+                             Content="Offizielles MSI Mystic Light SDK" Checked="OnChoiceChanged" />
+                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="20,4,0,8"
+                           Text="AetherRGB meldet sich als Drittanbieter-Programm bei MSI Center an. Vorteil: kein Konflikt mit MSI Center. Nachteil: Ohne laufendes MSI Center geht nichts, und schnelle Effekte (z. B. Audio-Visualizer) ruckeln etwas. Gesteuert werden ganze LED-Bereiche, keine einzelnen Pixel." />
+                <StackPanel x:Name="SdkPanel" Margin="20,0,0,0">
+                    <TextBlock x:Name="SdkStatusText" Foreground="{StaticResource BrushText}" TextWrapping="Wrap" Margin="0,0,0,8" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="DllPathBox" Grid.Column="0" Margin="0,0,8,0" TextChanged="OnDllPathChanged"
+                                 ToolTip="Pfad zur MysticLight_SDK_x64.dll — leer lassen, wenn sie im Programmordner oder in %APPDATA%\AetherRGB liegt" />
+                        <Button Grid.Column="1" Content="Durchsuchen …" Click="OnBrowseClick" />
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Eigene Variante -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <RadioButton x:Name="ChoiceHid" GroupName="Backend" Foreground="{StaticResource BrushText}" FontWeight="SemiBold"
+                             Content="Eigene Variante: direkt per USB/HID (experimentell)" Checked="OnChoiceChanged" />
+                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="20,4,0,0"
+                           Text="Ohne MSI Center und ohne Zusatz-DLL. Das Protokoll ist für dein Board noch nicht geprüft. Bitte MSI Center beenden, sonst schreiben zwei Programme gleichzeitig auf den Controller. Vor dem ersten Effekt den sicheren Einzel-Test in den Einstellungen machen." />
+            </StackPanel>
+        </Border>
+
+        <!-- Aus -->
+        <Border Style="{StaticResource Card}">
+            <StackPanel>
+                <RadioButton x:Name="ChoiceOff" GroupName="Backend" Foreground="{StaticResource BrushText}" FontWeight="SemiBold"
+                             Content="Nicht direkt steuern" Checked="OnChoiceChanged" />
+                <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="20,4,0,0"
+                           Text="Zum Beispiel, wenn das Board schon über OpenRGB läuft." />
+            </StackPanel>
+        </Border>
+
+        <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,4,0,16"
+                   Text="Du kannst das jederzeit unter Einstellungen → MSI Mystic Light ändern." />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Später entscheiden" Margin="0,0,8,0" Click="OnLaterClick" />
+            <Button x:Name="ApplyButton" Content="Übernehmen" Style="{StaticResource PrimaryButton}" IsDefault="True" Click="OnApplyClick" />
+        </StackPanel>
+    </StackPanel>
+</Window>

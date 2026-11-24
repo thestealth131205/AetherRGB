@@ -20,6 +20,17 @@ oder Telemetrie.
   bewusst **keine eigenen** SMBus/I2C-Low-Level-Treiber — OpenRGB deckt diese Boards bereits
   geprüft ab, ein Nachbau ohne echte Testhardware birgt ein unnötiges Risiko für die Hardware.
   Voraussetzung: OpenRGB ist installiert und läuft (mit aktiviertem SDK-Server).
+- **MSI Mystic Light**: bei erkanntem MSI-Mainboard fragt AetherRGB beim Start, welcher Weg genutzt
+  werden soll (jederzeit änderbar unter Einstellungen → MSI Mystic Light):
+  - **Offizielles MSI Mystic Light SDK**: AetherRGB meldet sich als Drittanbieter-Client beim
+    MSI-Center-Dienst (LEDKeeper2) an, also kein Konflikt mit MSI Center. Voraussetzungen:
+    MSI Center mit Mystic-Light-Modul läuft, Drittanbieter-Steuerung ist in Mystic Light erlaubt,
+    AetherRGB läuft als Administrator. Die `MysticLight_SDK_x64.dll` wird wegen der MSI-Lizenz
+    **nicht mitgeliefert**: Lade das SDK bei MSI herunter und lege die DLL in den Programmordner,
+    nach `%APPDATA%\AetherRGB` oder gib den Pfad in den Einstellungen an. Das SDK steuert ganze
+    LED-Bereiche, keine einzelnen Pixel, und ist bei schnellen Effekten in der Bildrate begrenzt.
+  - **Eigene Variante (direkt per USB/HID)**: ohne MSI Center und ohne DLL, experimentell
+    (vorher MSI Center beenden und den sicheren Einzel-LED-Test machen).
 
 ## Architektur
 
@@ -28,6 +39,7 @@ AetherRGB.Core                 Geräte-Abstraktion (IDeviceProvider), Effekt-Eng
 AetherRGB.Providers.OpenRGB     Motherboard-ARGB via OpenRGB-SDK-Protokoll
 AetherRGB.Providers.Wled        WLED-Geräte via JSON-API
 AetherRGB.Providers.HomeAssistant  Home-Assistant-Lichter als Ziel UND als Quelle
+AetherRGB.Providers.MsiMysticLight MSI-RGB via offiziellem Mystic Light SDK oder direkt per USB/HID
 AetherRGB.Api                   Lokale REST-API (nur 127.0.0.1), ASP.NET Core Minimal API
 AetherRGB.App                   WPF-Hauptanwendung
 ```

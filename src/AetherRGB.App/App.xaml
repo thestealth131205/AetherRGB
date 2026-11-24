@@ -186,6 +186,93 @@
                 <Setter Property="Margin" Value="0,0,0,16" />
             </Style>
 
+            <!-- Tab eines Effekt-Fensters; aktiver Tab per Tag="Active" -->
+            <Style x:Key="TabButton" TargetType="Button">
+                <Setter Property="Background" Value="{StaticResource BrushPanel}" />
+                <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}" />
+                <Setter Property="Padding" Value="14,6" />
+                <Setter Property="Margin" Value="8,0,0,0" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{StaticResource BrushBorder}"
+                                    BorderThickness="1" CornerRadius="8">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" Margin="{TemplateBinding Padding}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BrushAccent}" />
+                                </Trigger>
+                                <Trigger Property="Tag" Value="Active">
+                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource BrushPanelAlt}" />
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BrushAccent}" />
+                                    <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Kleiner quadratischer Symbol-Knopf (Werkzeugleiste unter der Effekt-Fläche) -->
+            <Style x:Key="IconButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                <Setter Property="Width" Value="34" />
+                <Setter Property="Height" Value="34" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0,0,8,0" />
+                <Setter Property="FontSize" Value="15" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+            </Style>
+
+            <Style x:Key="FieldLabel" TargetType="TextBlock">
+                <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}" />
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="Margin" Value="0,0,12,0" />
+            </Style>
+
+            <!-- Zahlenfeld im Screenshot-Stil: dunkel, zentriert, ohne Rahmen -->
+            <Style x:Key="FieldBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+                <Setter Property="Background" Value="{StaticResource BrushPanelAlt}" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="TextAlignment" Value="Center" />
+                <Setter Property="Margin" Value="0,0,28,8" />
+                <Setter Property="Padding" Value="6,7" />
+            </Style>
+
+            <Style x:Key="DeviceListBox" TargetType="ListBox">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+                <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+                <Setter Property="ItemContainerStyle">
+                    <Setter.Value>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Margin" Value="0,0,0,6" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <Border x:Name="Bd" Background="{StaticResource BrushPanelAlt}" CornerRadius="6"
+                                                BorderBrush="Transparent" BorderThickness="1">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BrushBorder}" />
+                                            </Trigger>
+                                            <Trigger Property="IsSelected" Value="True">
+                                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BrushAccent}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>

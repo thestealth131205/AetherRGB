@@ -29,9 +29,11 @@ public partial class MainWindow : Window
     private AppConfig _config;
     private DeviceRegistry _registry = new();
     private readonly CanvasEffectEngine _engine;
-    private CanvasLayout _layout = CanvasLayout.LoadOrCreateDefault();
+    private readonly SceneCollection _scenes = SceneCollection.LoadOrCreateDefault();
+    private readonly LedShapeStore _shapes = LedShapeStore.LoadOrCreateDefault();
     private LocalApiHost? _api;
     private MsiMysticLightDeviceProvider? _msiProvider;
+    private readonly MsiBoardInfo? _msiBoard = MsiBoardDetector.Detect();
     private readonly RepairService _repair = new();
     private readonly UpdateChecker _updateChecker = new();
     private readonly List<WledRow> _wledRows = new();
@@ -44,10 +46,12 @@ public partial class MainWindow : Window
 
         _config = AppConfig.LoadOrCreateDefault();
         _engine = new CanvasEffectEngine(_registry);
-        _engine.SetLayout(_layout);
+        _engine.SetScenes(_scenes);
+        _engine.SetShapes(_shapes);
 
-        EffectCombo.ItemsSource = new[] { "Statisch Rot", "Statisch Blau", "Regenbogen-Welle (Canvas)", "Farbverlauf (Canvas)", "Radialer Puls (Canvas)" };
-        EffectCombo.SelectedIndex = 2;
+        EffectsPanel.LogMessage += Log;
+        EffectsPanel.AddWledDevicesAsync = AddWledDevicesAsync;
+        EffectsPanel.Initialize(_engine, _scenes, _shapes);
 
         LoadSettingsIntoUi();
         InitializeTrayIcon();
@@ -67,8 +71,18 @@ public partial class MainWindow : Window
 
         Loaded += async (_, _) =>
         {
-            try { await ConnectAndRefreshAsync(); }
+            try
+            {
+                bool msiChanged = AskMsiBackendIfNeeded();
+                if (_isExiting) return; // Neustart als Administrator läuft bereits.
+                if (msiChanged) await RebuildProvidersAndReconnectAsync();
+                else await ConnectAndRefreshAsync();
+            }
             catch (Exception ex) { Log("Fehler beim Verbinden/Suchen von Geräten: " + ex.Message); }
+
+            // Die Engine läuft dauerhaft; was tatsächlich an die LEDs geht, steuert jedes
+            // Effekt-Fenster selbst (Abspielen/Pausieren).
+            _engine.Start();
         };
     }
 
@@ -149,6 +163,9 @@ public partial class MainWindow : Window
     private void BuildProviders()
     {
         _registry = new DeviceRegistry();
+        // Ohne das würde die Engine nach "Einstellungen speichern" weiter an die alte, bereits
+        // entsorgte Registry senden.
+        _engine.SetRegistry(_registry);
         _registry.ProviderError += (providerId, ex) => Log($"[{providerId}] {ex.Message}");
         _msiProvider = null;
 
@@ -161,11 +178,21 @@ public partial class MainWindow : Window
         if (_config.HomeAssistant.Enabled && !string.IsNullOrWhiteSpace(_config.HomeAssistant.LongLivedToken))
             _registry.Register(new HomeAssistantDeviceProvider(_config.HomeAssistant.BaseUrl, _config.HomeAssistant.LongLivedToken));
 
-        if (_config.MsiMysticLight.Enabled)
+        switch (_config.MsiMysticLight.Backend)
         {
-            _msiProvider = new MsiMysticLightDeviceProvider { LedCountOverride = _config.MsiMysticLight.LedCountOverride };
-            _msiProvider.Log += msg => Dispatcher.Invoke(() => Log("[MSI] " + msg));
-            _registry.Register(_msiProvider);
+            case MsiBackend.MysticLightSdk:
+                var sdkProvider = new MsiMysticLightSdkDeviceProvider
+                {
+                    DllPath = string.IsNullOrWhiteSpace(_config.MsiMysticLight.SdkDllPath) ? null : _config.MsiMysticLight.SdkDllPath
+                };
+                sdkProvider.Log += msg => Dispatcher.Invoke(() => Log("[MSI SDK] " + msg));
+                _registry.Register(sdkProvider);
+                break;
+            case MsiBackend.DirectHid:
+                _msiProvider = new MsiMysticLightDeviceProvider { LedCountOverride = _config.MsiMysticLight.LedCountOverride };
+                _msiProvider.Log += msg => Dispatcher.Invoke(() => Log("[MSI] " + msg));
+                _registry.Register(_msiProvider);
+                break;
         }
 
         _ = _api?.StopAsync();
@@ -215,9 +242,7 @@ public partial class MainWindow : Window
             ? $"{devices.Count} Gerät(e) verbunden"
             : (_registry.Providers.Count == 0 ? "Kein Provider aktiv" : "Keine Geräte gefunden");
 
-        _layout.SyncWithDevices(devices);
-        _layout.Save();
-        _engine.SetLayout(_layout);
+        EffectsPanel.SetDevices(devices);
     }
 
     private async void OnConnectClick(object sender, RoutedEventArgs e) => await ConnectAndRefreshAsync();
@@ -230,8 +255,18 @@ public partial class MainWindow : Window
         OpenRgbHostBox.Text = _config.OpenRgb.Host;
         OpenRgbPortBox.Text = _config.OpenRgb.Port.ToString();
 
-        MsiEnabledCheck.IsChecked = _config.MsiMysticLight.Enabled;
+        MsiBoardText.Text = _msiBoard is null
+            ? "Kein MSI-Mainboard erkannt. Die Auswahl gilt trotzdem, z. B. für MSI-Grafikkarten über das SDK."
+            : $"Erkannt: {_msiBoard.Manufacturer} — {_msiBoard.Product}";
+        (_config.MsiMysticLight.Backend switch
+        {
+            MsiBackend.MysticLightSdk => MsiBackendSdk,
+            MsiBackend.DirectHid => MsiBackendHid,
+            _ => MsiBackendOff
+        }).IsChecked = true;
+        MsiSdkPathBox.Text = _config.MsiMysticLight.SdkDllPath;
         MsiLedCountBox.Text = _config.MsiMysticLight.LedCountOverride.ToString();
+        UpdateMsiPanels();
 
         HaEnabledCheck.IsChecked = _config.HomeAssistant.Enabled;
         HaUrlBox.Text = _config.HomeAssistant.BaseUrl;
@@ -279,7 +314,8 @@ public partial class MainWindow : Window
         _config.OpenRgb.Host = string.IsNullOrWhiteSpace(OpenRgbHostBox.Text) ? "127.0.0.1" : OpenRgbHostBox.Text.Trim();
         _config.OpenRgb.Port = int.TryParse(OpenRgbPortBox.Text, out var orgbPort) ? orgbPort : 6742;
 
-        _config.MsiMysticLight.Enabled = MsiEnabledCheck.IsChecked == true;
+        _config.MsiMysticLight.Backend = SelectedMsiBackend();
+        _config.MsiMysticLight.SdkDllPath = MsiSdkPathBox.Text.Trim();
         _config.MsiMysticLight.LedCountOverride = int.TryParse(MsiLedCountBox.Text, out var ledCount) && ledCount > 0 ? ledCount : 1;
 
         _config.HomeAssistant.Enabled = HaEnabledCheck.IsChecked == true;
@@ -292,8 +328,88 @@ public partial class MainWindow : Window
         _config.WledInstances = _wledRows.Select(r => new WledInstanceConfig { Name = r.Name, Host = r.Host }).ToList();
 
         _config.Save();
+        if (_config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk && OfferElevatedRestart()) return;
         Log("Einstellungen gespeichert. Provider werden neu aufgebaut …");
         await RebuildProvidersAndReconnectAsync();
+    }
+
+    // ===================== MSI: Auswahl SDK / eigene Variante =====================
+
+    /// <summary>Fragt beim ersten Start mit erkanntem MSI-Board, welcher Steuerweg genutzt werden soll.
+    /// True, wenn sich die Konfiguration geändert hat und die Provider neu aufgebaut werden müssen.</summary>
+    private bool AskMsiBackendIfNeeded()
+    {
+        if (_msiBoard is null || _config.MsiMysticLight.Backend != MsiBackend.Ask) return false;
+
+        var dialog = new MsiBackendWindow(_msiBoard, _config.MsiMysticLight.Backend, _config.MsiMysticLight.SdkDllPath) { Owner = this };
+        if (dialog.ShowDialog() != true || dialog.Result is not { } choice)
+        {
+            Log("MSI-Mainboard erkannt — Steuerweg noch nicht gewählt (Einstellungen → MSI Mystic Light).");
+            return false;
+        }
+
+        _config.MsiMysticLight.Backend = choice;
+        _config.MsiMysticLight.SdkDllPath = dialog.DllPath;
+        _config.Save();
+        LoadSettingsIntoUi();
+        Log("MSI-Steuerweg gewählt: " + choice switch
+        {
+            MsiBackend.MysticLightSdk => "offizielles Mystic Light SDK",
+            MsiBackend.DirectHid => "eigene Variante (USB/HID)",
+            _ => "nicht direkt steuern"
+        });
+        if (choice == MsiBackend.MysticLightSdk && OfferElevatedRestart()) return false;
+        return true;
+    }
+
+    /// <summary>Das Mystic Light SDK funktioniert nur mit Administratorrechten. Bietet einen Neustart
+    /// mit UAC-Abfrage an; true, wenn die App dafür gerade beendet wird.</summary>
+    private bool OfferElevatedRestart()
+    {
+        if (MsiBoardDetector.IsElevated()) return false;
+        var answer = MessageBox.Show(this,
+            "Das Mystic Light SDK funktioniert nur, wenn AetherRGB mit Administratorrechten läuft.\n\n" +
+            "Jetzt als Administrator neu starten?",
+            "AetherRGB — Mystic Light SDK", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.Yes || Environment.ProcessPath is not { } exe) return false;
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true, Verb = "runas" });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // UAC-Abfrage abgelehnt — einfach ohne Adminrechte weiterlaufen.
+            Log("Neustart als Administrator abgebrochen — das Mystic Light SDK wird ohne Adminrechte nicht starten.");
+            return false;
+        }
+        ExitFromTray();
+        return true;
+    }
+
+    private MsiBackend SelectedMsiBackend() =>
+        MsiBackendSdk.IsChecked == true ? MsiBackend.MysticLightSdk
+        : MsiBackendHid.IsChecked == true ? MsiBackend.DirectHid
+        : MsiBackend.Off;
+
+    private void UpdateMsiPanels()
+    {
+        // Wird schon während InitializeComponent über Checked ausgelöst, bevor alle Elemente existieren.
+        if (MsiSdkPanel is null || MsiHidPanel is null || MsiSdkStatusText is null) return;
+        var backend = SelectedMsiBackend();
+        MsiSdkPanel.Visibility = backend == MsiBackend.MysticLightSdk ? Visibility.Visible : Visibility.Collapsed;
+        MsiHidPanel.Visibility = backend == MsiBackend.DirectHid ? Visibility.Visible : Visibility.Collapsed;
+        if (backend == MsiBackend.MysticLightSdk)
+            MsiSdkStatusText.Text = MsiBackendWindow.DescribeSdkStatus(MsiSdkPathBox.Text.Trim());
+    }
+
+    private void OnMsiBackendChanged(object sender, RoutedEventArgs e) => UpdateMsiPanels();
+
+    private void OnMsiSdkPathChanged(object sender, TextChangedEventArgs e) => UpdateMsiPanels();
+
+    private void OnMsiSdkBrowseClick(object sender, RoutedEventArgs e)
+    {
+        if (MsiBackendWindow.BrowseForDll(this) is { } path) MsiSdkPathBox.Text = path;
     }
 
     // ===================== MSI-HID-Test =====================
@@ -338,46 +454,27 @@ public partial class MainWindow : Window
         }
     }
 
-    // ===================== Layout / Effekte =====================
+    // ===================== WLED aus der Effekte-Seite =====================
 
-    private void OnLayoutClick(object sender, RoutedEventArgs e)
+    /// <summary>Übernimmt WLED-Geräte (manuell per IP oder per Netzwerksuche gefunden) in die Konfiguration
+    /// und baut die Provider neu auf, damit sie sofort in der Geräteliste zum Platzieren erscheinen.</summary>
+    private async Task AddWledDevicesAsync(IReadOnlyList<(string Name, string Host)> devices)
     {
-        var editor = new LayoutEditorWindow(_layout, savedLayout =>
+        int added = 0;
+        foreach (var (name, host) in devices)
         {
-            _layout = savedLayout;
-            _engine.SetLayout(_layout);
-            Log("Layout gespeichert.");
-        })
-        { Owner = this };
-        editor.ShowDialog();
-    }
+            if (_config.WledInstances.Any(w => string.Equals(w.Host, host, StringComparison.OrdinalIgnoreCase))) continue;
+            _config.WledInstances.Add(new WledInstanceConfig { Name = name, Host = host });
+            _wledRows.Add(new WledRow { Name = name, Host = host });
+            added++;
+        }
+        if (added == 0) return;
 
-    private ICanvasEffect _selectedEffect = new CanvasRainbowWaveEffect();
-
-    private void OnEffectChanged(object sender, SelectionChangedEventArgs e)
-    {
-        _selectedEffect = EffectCombo.SelectedIndex switch
-        {
-            0 => new CanvasStaticColorEffect(RgbColor.FromHex("#FF0000")),
-            1 => new CanvasStaticColorEffect(RgbColor.FromHex("#0000FF")),
-            2 => new CanvasRainbowWaveEffect(),
-            3 => new CanvasGradientSweepEffect(RgbColor.FromHex("#3B82F6"), RgbColor.FromHex("#EC4899")),
-            _ => new CanvasRadialPulseEffect(RgbColor.FromHex("#10B981"), RgbColor.FromHex("#0B0B0B"))
-        };
-    }
-
-    private void OnEffectStartClick(object sender, RoutedEventArgs e)
-    {
-        _engine.SetLayout(_layout);
-        _engine.SetEffect(_selectedEffect);
-        _engine.Start();
-        Log($"Effekt '{_selectedEffect.Name}' gestartet (Layout: {_layout.Items.Count} platzierte Zone(n)).");
-    }
-
-    private void OnEffectStopClick(object sender, RoutedEventArgs e)
-    {
-        _engine.Stop();
-        Log("Effekt gestoppt.");
+        _config.Save();
+        WledList.ItemsSource = null;
+        WledList.ItemsSource = _wledRows;
+        Log($"{added} WLED-Gerät(e) hinzugefügt. Provider werden neu aufgebaut …");
+        await RebuildProvidersAndReconnectAsync();
     }
 
     // ===================== Reparieren / Update =====================
