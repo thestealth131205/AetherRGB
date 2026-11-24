@@ -24,6 +24,9 @@ UninstallDisplayIcon={app}\AetherRGB.exe
 SetupIconFile=..\src\AetherRGB.App\Assets\AetherRGB.ico
 DisableProgramGroupPage=yes
 WizardStyle=modern
+; Bild links auf der Willkommensseite (Effekt-Editor); Inno wählt die zur DPI passende Größe.
+; Die Abschlussseite bekommt in [Code] ein eigenes Bild. Erzeugt von tools/make_wizard_images.py.
+WizardImageFile=wizard-editor-164.bmp,wizard-editor-246.bmp,wizard-editor-328.bmp
 
 [Languages]
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
@@ -31,6 +34,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "..\publish\installer\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "wizard-finish-*.bmp"; Flags: dontcopy
 
 [Icons]
 Name: "{group}\AetherRGB"; Filename: "{app}\AetherRGB.exe"
@@ -51,3 +55,20 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; Chroma-Bridge (RzChromaSDK64.dll in System32) entfernen — die App löscht nur ihre eigene DLL, nie die von Razer.
 Filename: "{app}\AetherRGB.exe"; Parameters: "--chroma-bridge uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveChromaBridge"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""AetherRGB"" /F"; Flags: runhidden; RunOnceId: "DeleteAutostartTask"
+
+[Code]
+// Abschlussseite: eigenes Bild (Effekte & Layout) statt des Willkommensbilds — kleinste Größe,
+// die die Bildfläche bei der aktuellen DPI noch ausfüllt.
+procedure InitializeWizard;
+var
+  FileName: String;
+begin
+  if WizardForm.WizardBitmapImage2.Width <= 164 then
+    FileName := 'wizard-finish-164.bmp'
+  else if WizardForm.WizardBitmapImage2.Width <= 246 then
+    FileName := 'wizard-finish-246.bmp'
+  else
+    FileName := 'wizard-finish-328.bmp';
+  ExtractTemporaryFile(FileName);
+  WizardForm.WizardBitmapImage2.Bitmap.LoadFromFile(ExpandConstant('{tmp}\') + FileName);
+end;

@@ -6,6 +6,28 @@ Lokale, Cloud-freie RGB-Sync-Software für Windows — ähnlich wie SignalRGB od
 offener API, Home-Assistant-Anbindung und WLED-Unterstützung, komplett ohne Account, Lizenzserver
 oder Telemetrie.
 
+## Screenshots
+
+**Effekte & Layout**: Geräte auf die Effekt-Fläche ziehen, mehrere Effekt-Fenster als Tabs,
+Farben und Tempo pro Effekt, rechts die gefundenen Geräte (Home Assistant, MSI, WLED …).
+
+![Effekte & Layout mit Radialem Puls](docs/screenshots/effekte-radialer-puls.png)
+
+![Effekte & Layout mit eigenem Effekt](docs/screenshots/effekte-eigener-effekt.png)
+
+**Effekt-Editor**: eigene Effekte malen (Pinsel, Formen, Füllen, Spiegeln), mit Frame-Zeitleiste,
+Ebenen, Animations-Vorlagen und Keyframes. Die platzierten Geräte liegen zur Orientierung darüber.
+
+![Effekt-Editor mit Frame-Zeitleiste](docs/screenshots/effekt-editor-frames.png)
+
+![Effekt-Editor mit Animation „Pulsieren“](docs/screenshots/effekt-editor-animation.png)
+
+![Effekt-Editor: Malen mit dem Pinsel](docs/screenshots/effekt-editor-malen.png)
+
+**Einstellungen**: z. B. MSI Mystic Light über das offizielle SDK mit Statusprüfung und Tempo-Grenze.
+
+![Einstellungen mit MSI Mystic Light](docs/screenshots/einstellungen-msi.png)
+
 ## Kernprinzipien
 
 - **Keine Cloud.** Keine Server-Kommunikation nach außen — alles läuft lokal auf dem PC. Die
