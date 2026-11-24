@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 using AetherRGB.Api;
+using AetherRGB.Core.Chroma;
 using AetherRGB.Core.Config;
 using AetherRGB.Core.Devices;
 using AetherRGB.Core.Diagnostics;
@@ -40,6 +41,8 @@ public partial class MainWindow : Window
     private readonly LedShapeStore _shapes = LedShapeStore.LoadOrCreateDefault();
     private readonly CustomEffectStore _customEffects = new();
     private LocalApiHost? _api;
+    private ChromaRestServer? _chromaRest;
+    private ChromaBridgeListener? _chromaBridge;
     private MsiMysticLightDeviceProvider? _msiProvider;
     private readonly MsiBoardInfo? _msiBoard = MsiBoardDetector.Detect();
     private readonly RepairService _repair = new();
@@ -94,6 +97,8 @@ public partial class MainWindow : Window
 
         LoadSettingsIntoUi();
         InitializeTrayIcon();
+        ChromaHub.Shared.Log += (level, msg) => Log("[Chroma] " + msg, level);
+        ApplyChroma();
         Closing += OnWindowClosing;
 
         try
@@ -392,6 +397,8 @@ public partial class MainWindow : Window
 
         LocalApiEnabledCheck.IsChecked = _config.LocalApi.Enabled;
         LocalApiPortBox.Text = _config.LocalApi.Port.ToString();
+        ChromaEnabledCheck.IsChecked = _config.RazerChroma.Enabled;
+        UpdateChromaStatus();
 
         _wledRows.Clear();
         _wledRows.AddRange(_config.WledInstances.Select(w => new WledRow { Name = w.Name, Host = w.Host }));
@@ -455,12 +462,103 @@ public partial class MainWindow : Window
 
         _config.WledInstances = _wledRows.Select(r => new WledInstanceConfig { Name = r.Name, Host = r.Host }).ToList();
         _config.StartWithWindows = StartWithWindowsCheck.IsChecked == true;
+        bool chromaChanged = _config.RazerChroma.Enabled != (ChromaEnabledCheck.IsChecked == true);
+        _config.RazerChroma.Enabled = ChromaEnabledCheck.IsChecked == true;
 
         _config.Save();
         ApplyAutostart();
+        if (chromaChanged) ApplyChroma();
         if (_config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk && OfferElevatedRestart()) return;
         Log("Einstellungen gespeichert. Provider werden neu aufgebaut …");
         await RebuildProvidersAndReconnectAsync();
+    }
+
+    // ===================== Spiele (Razer Chroma) =====================
+
+    /// <summary>Startet bzw. beendet den Empfang von Chroma-Spielen laut Einstellung: UDP von der Bridge-DLL
+    /// und den nachgebauten Chroma-REST-Server. Unabhängig von den Geräte-Providern, läuft also bei
+    /// „Geräte neu suchen“ einfach weiter.</summary>
+    private void ApplyChroma()
+    {
+        _chromaBridge?.Dispose();
+        _chromaBridge = null;
+        var oldRest = _chromaRest;
+        _chromaRest = null;
+        var stopRest = oldRest?.StopAsync() ?? Task.CompletedTask;
+        if (!_config.RazerChroma.Enabled)
+        {
+            if (oldRest is not null) Log("Razer Chroma: Empfang beendet.");
+            return;
+        }
+
+        try
+        {
+            var bridge = new ChromaBridgeListener(ChromaHub.Shared);
+            bridge.Log += (level, msg) => Log("[Chroma] " + msg, level);
+            bridge.Start();
+            _chromaBridge = bridge;
+            Log($"Razer Chroma: Empfang von der Bridge-DLL auf 127.0.0.1:{ChromaBridgeListener.Port}.", LogLevel.Debug);
+        }
+        catch (System.Net.Sockets.SocketException ex)
+        {
+            Log($"Razer Chroma: UDP-Port {ChromaBridgeListener.Port} belegt — Spiele über die Bridge-DLL kommen nicht an ({ex.Message}).", LogLevel.Warning);
+        }
+
+        var rest = new ChromaRestServer(ChromaHub.Shared);
+        _chromaRest = rest;
+        // Erst starten, wenn der alte Server den Port freigegeben hat.
+        _ = stopRest.ContinueWith(_ => rest.StartAsync()).Unwrap().ContinueWith(t =>
+        {
+            if (t.Exception is not null)
+                Log($"Razer Chroma: REST-Server konnte Port {rest.Port} nicht öffnen — läuft Razer Synapse? Dann bekommt Synapse die REST-Spiele. " +
+                    $"({ExceptionText.Describe(t.Exception)})", LogLevel.Info);
+            else
+                Log($"Razer Chroma: REST-Server läuft auf http://localhost:{rest.Port}/razer/chromasdk (nur lokal).");
+        }, TaskScheduler.Default);
+    }
+
+    private void UpdateChromaStatus()
+    {
+        var lines = ChromaBridgeInstaller.GetStatus().Select(s => s.State switch
+        {
+            ChromaBridgeInstaller.FileState.Ours => $"✓ {s.Label}: AetherRGB-DLL installiert ({s.Path})",
+            ChromaBridgeInstaller.FileState.OursOutdated => $"• {s.Label}: ältere AetherRGB-DLL — „installieren“ aktualisiert sie",
+            ChromaBridgeInstaller.FileState.Foreign => $"• {s.Label}: Razer-DLL vorhanden ({s.Path}) — Spiele reden dann mit Razer Synapse, nicht mit AetherRGB",
+            _ => $"• {s.Label}: keine Chroma-DLL installiert",
+        }).ToList();
+        if (!ChromaBridgeInstaller.IsAvailable) lines.Add("Diese Version enthält keine Bridge-DLL (lokaler Build) — Installieren nicht möglich.");
+        ChromaStatusText.Text = string.Join("\n", lines);
+        ChromaInstallButton.IsEnabled = ChromaBridgeInstaller.IsAvailable;
+    }
+
+    private void OnChromaInstallClick(object sender, RoutedEventArgs e)
+    {
+        var answer = MessageBox.Show(this,
+            "AetherRGB legt jetzt eine eigene RzChromaSDK64.dll nach C:\\Windows\\System32 (und RzChromaSDK.dll nach SysWOW64). " +
+            "Spiele mit Razer-Chroma-Unterstützung laden sie und schicken ihre Lichteffekte an AetherRGB.\n\n" +
+            "Wichtig: Die DLL läuft im Spielprozess und ist nicht von Razer signiert. Spiele mit Anti-Cheat (Easy Anti-Cheat, BattlEye — " +
+            "auch Fortnite) können deshalb den Start verweigern oder Chroma abschalten; ein Bann ist nicht auszuschließen.\n\n" +
+            "Spiele vorher beenden. Fortfahren?",
+            "AetherRGB — Razer Chroma", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (answer != MessageBoxResult.Yes) return;
+        RunChromaInstaller(install: true);
+    }
+
+    private void OnChromaUninstallClick(object sender, RoutedEventArgs e) => RunChromaInstaller(install: false);
+
+    private void RunChromaInstaller(bool install)
+    {
+        string? result;
+        try { result = ChromaBridgeInstaller.Run(install); }
+        catch (Exception ex) { result = "Fehler: " + ExceptionText.Describe(ex); }
+        UpdateChromaStatus();
+        if (result is null)
+        {
+            Log("Razer Chroma: Adminrechte abgelehnt — DLL nicht " + (install ? "installiert." : "entfernt."), LogLevel.Warning);
+            return;
+        }
+        foreach (var line in result.Split('\n')) Log("[Chroma] " + line);
+        MessageBox.Show(this, result, "AetherRGB — Razer Chroma", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     // ===================== MSI: Auswahl SDK / eigene Variante =====================
@@ -838,7 +936,8 @@ public partial class MainWindow : Window
                 : "Home Assistant aus",
             $"MSI {_config.MsiMysticLight.Backend}" + (_config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk
                 ? $" (DLL: {MsiMysticLightSdkDeviceProvider.FindSdkDll(_config.MsiMysticLight.SdkDllPath) ?? "nicht gefunden"})" : ""),
-            _config.LocalApi.Enabled ? $"lokale API Port {_config.LocalApi.Port}" : "lokale API aus"
+            _config.LocalApi.Enabled ? $"lokale API Port {_config.LocalApi.Port}" : "lokale API aus",
+            _config.RazerChroma.Enabled ? "Razer Chroma an" : "Razer Chroma aus"
         }), LogLevel.Debug);
         Log($"Effekt-Fenster: {_scenes.Scenes.Count}, platzierte Zonen: {_scenes.Scenes.Sum(sc => sc.Items.Count)}, " +
             $"eigene LED-Anordnungen: {_shapes.Shapes.Count}", LogLevel.Debug);
@@ -885,6 +984,8 @@ public partial class MainWindow : Window
         _customEffects.Dispose();
         _engine.Dispose();
         _ = _api?.StopAsync();
+        _chromaBridge?.Dispose();
+        _ = _chromaRest?.StopAsync();
         _ = _registry.DisposeAsync();
         base.OnClosed(e);
     }

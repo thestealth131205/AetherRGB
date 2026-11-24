@@ -30,6 +30,10 @@ jobs:
           $version = $csproj.Project.PropertyGroup.Version | Select-Object -First 1
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
+      - name: Chroma-Bridge (RzChromaSDK64.dll / RzChromaSDK.dll) mit MSVC bauen
+        shell: cmd
+        run: native\ChromaBridge\build-msvc.cmd
+
       - name: Restore
         run: dotnet restore AetherRGB.sln
 

@@ -57,6 +57,10 @@ public sealed class CustomEffectDocument
     public double DurationSeconds { get; set; } = 4;
     public EffectLoopMode Loop { get; set; } = EffectLoopMode.Loop;
 
+    /// <summary>Länge der Zeitleiste automatisch so wählen, dass sich alle Animationen, Keyframes und
+    /// Daumenkinos nahtlos wiederholen (<see cref="LayerAnimator.SeamlessDuration"/>).</summary>
+    public bool AutoDuration { get; set; } = true;
+
     public int GridWidth { get; set; } = DefaultGridWidth;
     public int GridHeight { get; set; } = DefaultGridHeight;
 
@@ -97,6 +101,9 @@ public abstract class EffectLayer
     /// <summary>"Umlaufend": was rechts/unten aus der Fläche herausläuft, kommt links/oben wieder herein.</summary>
     public bool WrapX { get; set; }
     public bool WrapY { get; set; }
+
+    /// <summary>Animations-Vorlagen (Wandern, Ausdehnen, Drehen …), wirken zusätzlich zu den Keyframes.</summary>
+    public List<LayerAnimation> Animations { get; set; } = new();
 
     /// <summary>Alle animierbaren Werte, z. B. für die Zeitleiste und die Prüfung beim Laden.</summary>
     public virtual IEnumerable<(string Name, AnimatedValue Value)> AnimatedValues()

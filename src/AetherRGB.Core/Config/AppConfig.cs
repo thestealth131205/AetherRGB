@@ -30,6 +30,13 @@ public sealed class HomeAssistantConfig
     public bool UseTransition { get; set; } = true;
 }
 
+/// <summary>Spiele mit Razer-Chroma-Unterstützung: Empfang über die Bridge-DLL (UDP 127.0.0.1:34535) und
+/// den nachgebauten Chroma-REST-Server (localhost:54235). Beides nur lokal.</summary>
+public sealed class RazerChromaConfig
+{
+    public bool Enabled { get; set; } = true;
+}
+
 public sealed class LocalApiConfig
 {
     public bool Enabled { get; set; } = true;
@@ -93,6 +100,7 @@ public sealed class AppConfig
     public bool WledUseUdpRealtime { get; set; } = true;
     public HomeAssistantConfig HomeAssistant { get; set; } = new();
     public LocalApiConfig LocalApi { get; set; } = new();
+    public RazerChromaConfig RazerChroma { get; set; } = new();
     public MsiMysticLightConfig MsiMysticLight { get; set; } = new();
     public bool CheckForUpdatesOnStartup { get; set; } = true;
 

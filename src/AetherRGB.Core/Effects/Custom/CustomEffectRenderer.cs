@@ -49,6 +49,47 @@ public sealed class CustomEffectFrame
     private static byte ToByte(double v) => (byte)Math.Round(Math.Clamp(v, 0, 1) * 255);
 }
 
+/// <summary>Zusatzoptionen für <see cref="CustomEffectRenderer.Render(CustomEffectDocument, double, CustomEffectFrame?, EffectRenderOptions)"/>.</summary>
+public readonly struct EffectRenderOptions
+{
+    /// <summary>Diese Ebene ohne Verschiebung, Drehung, Größe und Animationen zeichnen — so liegen die
+    /// Zellen beim Malen genau unter dem Pinsel.</summary>
+    public EffectLayer? Untransformed { get; init; }
+}
+
+/// <summary>2D-Transformation (x' = A·x + B·y + C, y' = D·x + E·y + F) in Rasterzellen.</summary>
+internal readonly struct Affine
+{
+    public readonly double A, B, C, D, E, F;
+    public Affine(double a, double b, double c, double d, double e, double f) { A = a; B = b; C = c; D = d; E = e; F = f; }
+
+    public static Affine Identity => new(1, 0, 0, 0, 1, 0);
+    public static Affine Translate(double x, double y) => new(1, 0, x, 0, 1, y);
+    public static Affine ScaleAbout(double s, double cx, double cy) => new(s, 0, cx - s * cx, 0, s, cy - s * cy);
+
+    /// <summary>Drehung im Uhrzeigersinn (Bildschirm-Koordinaten, y nach unten) um (cx, cy).</summary>
+    public static Affine RotateAbout(double degrees, double cx, double cy)
+    {
+        if (degrees == 0) return Identity;
+        double r = degrees * Math.PI / 180, c = Math.Cos(r), s = Math.Sin(r);
+        return new(c, -s, cx - c * cx + s * cy, s, c, cy - s * cx - c * cy);
+    }
+
+    /// <summary>Erst <paramref name="m"/>, dann <paramref name="l"/>.</summary>
+    public static Affine operator *(Affine l, Affine m) => new(
+        l.A * m.A + l.B * m.D, l.A * m.B + l.B * m.E, l.A * m.C + l.B * m.F + l.C,
+        l.D * m.A + l.E * m.D, l.D * m.B + l.E * m.E, l.D * m.C + l.E * m.F + l.F);
+
+    public bool TryInvert(out Affine inverse)
+    {
+        double det = A * E - B * D;
+        if (Math.Abs(det) < 1e-12) { inverse = Identity; return false; }
+        double ia = E / det, ib = -B / det, id = -D / det, ie = A / det;
+        inverse = new(ia, ib, -(ia * C + ib * F), id, ie, -(id * C + ie * F));
+        return true;
+    }
+}
+
 /// <summary>Setzt die Ebenen eines <see cref="CustomEffectDocument"/> zu einem Zeitpunkt zu einem Bild
 /// zusammen. Pro Bild werden alle animierten Werte einmal ausgewertet und dann jede Zelle des Rasters
 /// (160 × 80 = 12 800) einmal pro Ebene berechnet — auch mit vielen Ebenen weit unter 1 ms pro Ebene.</summary>
@@ -72,7 +113,11 @@ public static class CustomEffectRenderer
     }
 
     /// <summary>Bild zum Zeitpunkt <paramref name="time"/> auf der Zeitleiste.</summary>
-    public static CustomEffectFrame Render(CustomEffectDocument document, double time, CustomEffectFrame? target = null)
+    public static CustomEffectFrame Render(CustomEffectDocument document, double time, CustomEffectFrame? target = null) =>
+        Render(document, time, target, default);
+
+    /// <param name="options">Für den Editor: eine Ebene ohne Transformation/Animation zeigen (beim Malen).</param>
+    public static CustomEffectFrame Render(CustomEffectDocument document, double time, CustomEffectFrame? target, EffectRenderOptions options)
     {
         int w = document.GridWidth, h = document.GridHeight;
         var frame = target is not null && target.Width == w && target.Height == h ? target : new CustomEffectFrame(w, h);
@@ -82,51 +127,82 @@ public static class CustomEffectRenderer
         foreach (var layer in document.Layers)
         {
             if (!layer.Visible) continue;
-            double opacity = Math.Clamp(layer.Opacity.Evaluate(time), 0, 1);
-            if (opacity <= 0) continue;
-            var sampler = CreateSampler(layer, document, time);
-            if (sampler is null) continue;
-
-            // Inverse Transformation Fläche → Ebene, in Rasterzellen (seitenverhältnistreu).
-            double scale = layer.Scale.Evaluate(time);
-            if (Math.Abs(scale) < 1e-4) continue;
-            double rad = layer.Rotation.Evaluate(time) * Math.PI / 180.0;
-            double cos = Math.Cos(-rad), sin = Math.Sin(-rad);
-            double px = layer.PivotX * w, py = layer.PivotY * h;
-            double ox = layer.OffsetX.Evaluate(time) * w, oy = layer.OffsetY.Evaluate(time) * h;
-            var hue = HueMatrix(layer.HueShift.Evaluate(time));
-            var blend = layer.Blend;
-            bool wrapX = layer.WrapX, wrapY = layer.WrapY;
-
-            for (int y = 0; y < h; y++)
+            bool untransformed = ReferenceEquals(layer, options.Untransformed);
+            int instances = untransformed ? 1 : LayerAnimator.InstanceCount(layer);
+            for (int instance = 0; instance < instances; instance++)
             {
-                for (int x = 0; x < w; x++)
-                {
-                    double qx = (x + 0.5 - px - ox) / scale, qy = (y + 0.5 - py - oy) / scale;
-                    double lu = (qx * cos - qy * sin + px) / w;
-                    double lv = (qx * sin + qy * cos + py) / h;
-                    if (wrapX) lu -= Math.Floor(lu);
-                    if (wrapY) lv -= Math.Floor(lv);
-
-                    sampler(lu, lv, out float sr, out float sg, out float sb, out float sa);
-                    float a = (float)(sa * opacity);
-                    if (a <= 0) continue;
-                    if (hue is not null)
-                    {
-                        float hr = hue[0] * sr + hue[1] * sg + hue[2] * sb;
-                        float hg = hue[3] * sr + hue[4] * sg + hue[5] * sb;
-                        float hb = hue[6] * sr + hue[7] * sg + hue[8] * sb;
-                        sr = Math.Clamp(hr, 0, 1); sg = Math.Clamp(hg, 0, 1); sb = Math.Clamp(hb, 0, 1);
-                    }
-
-                    int i = (y * w + x) * 3;
-                    Blend(blend, ref rgb[i], sr, a);
-                    Blend(blend, ref rgb[i + 1], sg, a);
-                    Blend(blend, ref rgb[i + 2], sb, a);
-                }
+                var anim = untransformed || layer.Animations.Count == 0
+                    ? AnimationState.Identity
+                    : LayerAnimator.Evaluate(layer, time, instance, instances);
+                RenderLayer(layer, document, time, anim, untransformed, rgb);
             }
         }
         return frame;
+    }
+
+    private static void RenderLayer(EffectLayer layer, CustomEffectDocument document, double time, AnimationState anim, bool untransformed, float[] rgb)
+    {
+        int w = document.GridWidth, h = document.GridHeight;
+        double opacity = untransformed ? 1 : Math.Clamp(layer.Opacity.Evaluate(time) * anim.OpacityFactor, 0, 1);
+        if (opacity <= 0) return;
+        double sizeFactor = Math.Max(0, anim.SizeFactor);
+        bool wrapX = layer.WrapX || (!untransformed && anim.WrapX), wrapY = layer.WrapY || (!untransformed && anim.WrapY);
+        var sampler = CreateSampler(layer, document, time, layer is ShapeLayer ? sizeFactor : 1, wrapX, wrapY);
+        if (sampler is null) return;
+
+        // Vorwärts-Transformation Ebene → Fläche in Rasterzellen (seitenverhältnistreu), dann invertiert:
+        // erst die Transformation der Ebene um ihren Drehpunkt, dann die Größe der Animation (bei Formen
+        // schon in den Maßen der Form enthalten), dann deren Drehung, zuletzt alle Verschiebungen.
+        var m = Affine.Identity;
+        double hueShift = 0;
+        if (!untransformed)
+        {
+            double scale = layer.Scale.Evaluate(time);
+            if (Math.Abs(scale) < 1e-4) return;
+            double px = layer.PivotX * w, py = layer.PivotY * h;
+            m = Affine.ScaleAbout(scale, px, py);
+            m = Affine.RotateAbout(layer.Rotation.Evaluate(time), px, py) * m;
+            if (layer is not ShapeLayer && Math.Abs(sizeFactor - 1) > 1e-9)
+            {
+                if (sizeFactor < 1e-4) return;
+                m = Affine.ScaleAbout(sizeFactor, anim.SizeCenterX * w, anim.SizeCenterY * h) * m;
+            }
+            if (anim.Rotation != 0) m = Affine.RotateAbout(anim.Rotation, anim.RotateCenterX * w, anim.RotateCenterY * h) * m;
+            m = Affine.Translate((layer.OffsetX.Evaluate(time) + anim.OffsetX) * w, (layer.OffsetY.Evaluate(time) + anim.OffsetY) * h) * m;
+            hueShift = layer.HueShift.Evaluate(time) + anim.HueShift;
+        }
+        if (!m.TryInvert(out var inv)) return;
+        var hue = HueMatrix(hueShift);
+        var blend = layer.Blend;
+
+        for (int y = 0; y < h; y++)
+        {
+            double cy = y + 0.5;
+            for (int x = 0; x < w; x++)
+            {
+                double cx = x + 0.5;
+                double lu = (inv.A * cx + inv.B * cy + inv.C) / w;
+                double lv = (inv.D * cx + inv.E * cy + inv.F) / h;
+                if (wrapX) lu -= Math.Floor(lu);
+                if (wrapY) lv -= Math.Floor(lv);
+
+                sampler(lu, lv, out float sr, out float sg, out float sb, out float sa);
+                float a = (float)(sa * opacity);
+                if (a <= 0) continue;
+                if (hue is not null)
+                {
+                    float hr = hue[0] * sr + hue[1] * sg + hue[2] * sb;
+                    float hg = hue[3] * sr + hue[4] * sg + hue[5] * sb;
+                    float hb = hue[6] * sr + hue[7] * sg + hue[8] * sb;
+                    sr = Math.Clamp(hr, 0, 1); sg = Math.Clamp(hg, 0, 1); sb = Math.Clamp(hb, 0, 1);
+                }
+
+                int i = (y * w + x) * 3;
+                Blend(blend, ref rgb[i], sr, a);
+                Blend(blend, ref rgb[i + 1], sg, a);
+                Blend(blend, ref rgb[i + 2], sb, a);
+            }
+        }
     }
 
     private static void Blend(LayerBlendMode mode, ref float dst, float src, float a)
@@ -143,16 +219,16 @@ public static class CustomEffectRenderer
     /// <summary>Farbe (nicht vormultipliziert) und Deckung einer Ebene an der Ebenen-Position (u, v) in 0..1.</summary>
     private delegate void LayerSampler(double u, double v, out float r, out float g, out float b, out float a);
 
-    private static LayerSampler? CreateSampler(EffectLayer layer, CustomEffectDocument document, double time) => layer switch
+    private static LayerSampler? CreateSampler(EffectLayer layer, CustomEffectDocument document, double time, double sizeFactor, bool wrapX, bool wrapY) => layer switch
     {
-        PaintLayer paint => CreatePaintSampler(paint, document, time),
-        ShapeLayer shape => CreateShapeSampler(shape, document, time),
+        PaintLayer paint => CreatePaintSampler(paint, document, time, wrapX, wrapY),
+        ShapeLayer shape => CreateShapeSampler(shape, document, time, sizeFactor, wrapX, wrapY),
         _ => null
     };
 
     // ---------- Gemalte Ebene ----------
 
-    private static LayerSampler? CreatePaintSampler(PaintLayer layer, CustomEffectDocument document, double time)
+    private static LayerSampler? CreatePaintSampler(PaintLayer layer, CustomEffectDocument document, double time, bool wrapX, bool wrapY)
     {
         if (layer.Frames.Count == 0) return null;
         int w = document.GridWidth, h = document.GridHeight;
@@ -160,7 +236,6 @@ public static class CustomEffectRenderer
         var pa = layer.Frames[a].Pixels;
         var pb = layer.Frames[b].Pixels;
         if (pa.Length != w * h * 4 || pb.Length != w * h * 4) return null;
-        bool wrapX = layer.WrapX, wrapY = layer.WrapY;
 
         return (double u, double v, out float r, out float g, out float bl, out float al) =>
         {
@@ -221,7 +296,9 @@ public static class CustomEffectRenderer
 
     // ---------- Form-Ebene ----------
 
-    private static LayerSampler? CreateShapeSampler(ShapeLayer layer, CustomEffectDocument document, double time)
+    /// <param name="sizeFactor">Größe aus Animationen (Ausdehnen, Pulsieren): wirkt auf Radius/Breite/Höhe,
+    /// nicht auf die Dicke — ein ausdehnender Ring bleibt gleich dick.</param>
+    private static LayerSampler? CreateShapeSampler(ShapeLayer layer, CustomEffectDocument document, double time, double sizeFactor, bool wrapX, bool wrapY)
     {
         RgbColor color;
         try { color = RgbColor.FromHex(layer.Color); }
@@ -231,15 +308,14 @@ public static class CustomEffectRenderer
         // Alles in Einheiten der Flächenhöhe, damit Kreise auch auf 2:1-Flächen rund bleiben.
         double aspect = (double)document.GridWidth / document.GridHeight;
         double cx = layer.CenterX.Evaluate(time) * aspect, cy = layer.CenterY.Evaluate(time);
-        double radius = Math.Max(0, layer.Radius.Evaluate(time));
-        double halfW = Math.Max(0, layer.Width.Evaluate(time)) * aspect / 2, halfH = Math.Max(0, layer.Height.Evaluate(time)) / 2;
+        double radius = Math.Max(0, layer.Radius.Evaluate(time)) * sizeFactor;
+        double halfW = Math.Max(0, layer.Width.Evaluate(time)) * sizeFactor * aspect / 2, halfH = Math.Max(0, layer.Height.Evaluate(time)) * sizeFactor / 2;
         double halfThickness = Math.Max(0, layer.Thickness.Evaluate(time)) / 2;
         double soft = Math.Max(0, layer.Softness.Evaluate(time));
         // Mindestens eine halbe Zelle Kante, sonst flimmern bewegte Formen auf den LEDs.
         soft = Math.Max(soft, 0.5 / document.GridHeight);
         var kind = layer.Kind;
         bool filled = layer.Filled;
-        bool wrapX = layer.WrapX, wrapY = layer.WrapY;
 
         double Distance(double x, double y)
         {

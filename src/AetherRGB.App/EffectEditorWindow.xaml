@@ -70,7 +70,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="300" />
+                <ColumnDefinition Width="330" />
             </Grid.ColumnDefinitions>
 
             <!-- ==== Werkzeugleiste links ==== -->
@@ -98,6 +98,8 @@
                             <Image x:Name="OnionImage" Stretch="Fill" RenderOptions.BitmapScalingMode="NearestNeighbor" Opacity="0.3" IsHitTestVisible="False" />
                             <Rectangle x:Name="GridOverlay" IsHitTestVisible="False" />
                             <Canvas x:Name="DeviceOverlay" IsHitTestVisible="False" />
+                            <!-- Anfasser der gewählten Animation: Mittelpunkt, Richtung beim Wandern -->
+                            <Canvas x:Name="AnimOverlay" IsHitTestVisible="False" />
                             <Canvas x:Name="CursorOverlay" IsHitTestVisible="False" />
                             <Canvas x:Name="InputCanvas" Background="Transparent" Cursor="Cross"
                                     MouseDown="OnCanvasMouseDown" MouseMove="OnCanvasMouseMove" MouseUp="OnCanvasMouseUp"
@@ -109,11 +111,55 @@
                 <!-- Zeitleiste: Miniaturen aller Frames der Mal-Ebene. Klick lädt den Frame in die Fläche. -->
                 <Border Grid.Row="1" Style="{StaticResource Card}" Padding="12,10" Margin="0,10,0,0">
                     <DockPanel>
+                        <!-- Zeit: Abspielposition, Länge der Zeitleiste, Schleife -->
+                        <Grid DockPanel.Dock="Top" Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="PlayButton" Grid.Column="0" Content="▶  Abspielen" Margin="0,0,10,0" Click="OnPlayClick"
+                                    ToolTip="Ganzen Effekt hier im Editor abspielen (Leertaste). Malen hält ihn an." />
+                            <TextBlock x:Name="TimeText" Grid.Column="1" Style="{StaticResource MutedText}" VerticalAlignment="Center" MinWidth="96" Margin="0,0,8,0" />
+                            <Slider x:Name="TimeSlider" Grid.Column="2" Minimum="0" Maximum="4" VerticalAlignment="Center" ValueChanged="OnTimeSliderChanged"
+                                    ToolTip="Zeitpunkt wählen — die Fläche zeigt dann den ganzen Effekt mit allen Animationen" />
+                            <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="12,0,0,0">
+                                <TextBlock Text="Länge" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <TextBox x:Name="DurationBox" Width="54" VerticalAlignment="Center" LostFocus="OnDurationCommit" KeyDown="OnDurationKeyDown"
+                                         ToolTip="Länge der Zeitleiste in Sekunden (0,1–600)" />
+                                <TextBlock Text="s" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="4,0,10,0" />
+                                <CheckBox x:Name="AutoDurationCheck" Content="automatisch" VerticalAlignment="Center" Margin="0,0,10,0"
+                                          Checked="OnAutoDurationChanged" Unchecked="OnAutoDurationChanged"
+                                          ToolTip="Länge so wählen, dass sich alle Animationen, Keyframes und Frames nahtlos wiederholen" />
+                                <ComboBox x:Name="LoopCombo" Width="140" SelectionChanged="OnLoopChanged" ToolTip="Was am Ende der Zeitleiste passiert">
+                                    <ComboBoxItem Content="Schleife" />
+                                    <ComboBoxItem Content="Hin und zurück" />
+                                    <ComboBoxItem Content="Einmal, dann halten" />
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Keyframes der gewählten Ebene: eine Spur pro animiertem Wert -->
+                        <Grid x:Name="KeyArea" DockPanel.Dock="Top" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="110" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel x:Name="KeyLabels" Grid.Column="0" />
+                            <Border Grid.Column="1" Background="{StaticResource BrushPanelAlt}" CornerRadius="6">
+                                <Canvas x:Name="KeyTrack" Background="Transparent" ClipToBounds="True" MinHeight="22"
+                                        MouseLeftButtonDown="OnKeyTrackMouseDown" MouseMove="OnKeyTrackMouseMove" MouseLeftButtonUp="OnKeyTrackMouseUp"
+                                        SizeChanged="OnKeyTrackSizeChanged" />
+                            </Border>
+                        </Grid>
+
+                        <TextBlock x:Name="FramesHint" DockPanel.Dock="Top" Style="{StaticResource MutedText}" Visibility="Collapsed" Margin="0,4,0,0"
+                                   Text="Form-Ebene gewählt — Frames gibt es nur bei Mal-Ebenen." />
+                        <DockPanel x:Name="FramesPanel">
                         <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-                            <TextBlock Text="Zeitleiste" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <TextBlock Text="Frames" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0" />
                             <TextBlock x:Name="FrameInfoText" Style="{StaticResource MutedText}" VerticalAlignment="Center" Margin="0,0,16,0" MinWidth="150" />
-                            <Button x:Name="PlayButton" Content="▶  Abspielen" Margin="0,0,8,0" Click="OnPlayClick"
-                                    ToolTip="Animation hier im Editor abspielen. Malen hält sie an." />
                             <Button Content="Duplizieren" Margin="0,0,8,0" Click="OnDuplicateFrameClick" ToolTip="Kopie des aktuellen Frames dahinter einfügen (Strg+D)" />
                             <Button x:Name="MoveFrameLeftButton" Content="◀" Style="{StaticResource IconButton}" Margin="0,0,4,0" Click="OnMoveFrameLeftClick" ToolTip="Frame eine Stelle nach vorn" />
                             <Button x:Name="MoveFrameRightButton" Content="▶" Style="{StaticResource IconButton}" Margin="0,0,8,0" Click="OnMoveFrameRightClick" ToolTip="Frame eine Stelle nach hinten" />
@@ -131,14 +177,38 @@
                                       PreviewMouseWheel="OnTimelineMouseWheel">
                             <StackPanel x:Name="TimelinePanel" Orientation="Horizontal" Margin="0,0,0,4" />
                         </ScrollViewer>
+                        </DockPanel>
                     </DockPanel>
                 </Border>
             </Grid>
 
             <!-- ==== Eigenschaften rechts ==== -->
             <Border Grid.Column="2" Style="{StaticResource Card}" Padding="14" Margin="14,0,0,0">
+                <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+                    <Button x:Name="ToolTabButton" Content="🖌  Werkzeug" Style="{StaticResource TabButton}" Margin="0,0,6,0" Tag="Active" Click="OnToolTabClick" />
+                    <Button x:Name="LayerTabButton" Content="🎞  Ebenen &amp; Animation" Style="{StaticResource TabButton}" Margin="0" Click="OnLayerTabClick" />
+                </StackPanel>
+
+                <!-- Anzeige + Live: in beiden Reitern sichtbar -->
+                <StackPanel DockPanel.Dock="Bottom">
+                        <Border Height="1" Background="{StaticResource BrushBorder}" Margin="0,10,0,4" />
+                        <TextBlock Text="Effekt-Fenster" Style="{StaticResource PanelLabel}" />
+                        <ComboBox x:Name="SceneCombo" DisplayMemberPath="Name" SelectionChanged="OnSceneChanged"
+                                  ToolTip="Dessen Geräte werden eingeblendet; dort läuft auch „Live auf LEDs“" />
+                        <WrapPanel Margin="0,8,0,0">
+                            <CheckBox x:Name="ShowDevicesCheck" Content="Geräte" IsChecked="True" Margin="0,0,12,4" Checked="OnOverlayOptionChanged" Unchecked="OnOverlayOptionChanged" ToolTip="Geräte des Effekt-Fensters einblenden" />
+                            <CheckBox x:Name="ShowGridCheck" Content="Raster" IsChecked="True" Margin="0,0,12,4" Checked="OnOverlayOptionChanged" Unchecked="OnOverlayOptionChanged" />
+                            <CheckBox x:Name="LiveCheck" Content="Live auf LEDs" Margin="0,0,0,4" Checked="OnLiveChanged" Unchecked="OnLiveChanged"
+                                      ToolTip="Das gewählte Effekt-Fenster zeigt sofort, was du malst. Beim Ausschalten oder Schließen läuft dort wieder sein eigener Effekt." />
+                        </WrapPanel>
+                        <Button x:Name="UseInSceneButton" Content="Im Effekt-Fenster verwenden" Margin="0,6,0,0" Click="OnUseInSceneClick"
+                                ToolTip="Speichern und als Effekt des gewählten Effekt-Fensters einstellen" />
+                </StackPanel>
+
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel>
+                    <Grid>
+                    <StackPanel x:Name="ToolPanel">
                         <TextBlock x:Name="ToolTitle" Text="Pinsel" FontSize="16" FontWeight="SemiBold" />
 
                         <!-- Farbe -->
@@ -209,20 +279,36 @@
                             </WrapPanel>
                         </StackPanel>
 
-                        <!-- Anzeige + Live -->
-                        <Border Height="1" Background="{StaticResource BrushBorder}" Margin="0,10,0,4" />
-                        <TextBlock Text="Effekt-Fenster" Style="{StaticResource PanelLabel}" />
-                        <ComboBox x:Name="SceneCombo" DisplayMemberPath="Name" SelectionChanged="OnSceneChanged"
-                                  ToolTip="Dessen Geräte werden eingeblendet; dort läuft auch „Live auf LEDs“" />
-                        <CheckBox x:Name="ShowDevicesCheck" Content="Geräte einblenden" IsChecked="True" Margin="0,8,0,0" Checked="OnOverlayOptionChanged" Unchecked="OnOverlayOptionChanged" />
-                        <CheckBox x:Name="ShowGridCheck" Content="Raster anzeigen" IsChecked="True" Margin="0,4,0,0" Checked="OnOverlayOptionChanged" Unchecked="OnOverlayOptionChanged" />
-                        <CheckBox x:Name="LiveCheck" Content="Live auf LEDs" Margin="0,4,0,0" Checked="OnLiveChanged" Unchecked="OnLiveChanged"
-                                  ToolTip="Das gewählte Effekt-Fenster zeigt sofort, was du malst. Beim Ausschalten oder Schließen läuft dort wieder sein eigener Effekt." />
-                        <Button x:Name="UseInSceneButton" Content="Im Effekt-Fenster verwenden" Margin="0,10,0,0" Click="OnUseInSceneClick"
-                                ToolTip="Speichern und als Effekt des gewählten Effekt-Fensters einstellen" />
-                        <TextBlock x:Name="LayerHint" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,0" Visibility="Collapsed" />
                     </StackPanel>
+
+                    <!-- Ebenen & Animation: Werte und Animationen werden im Code je nach Ebene aufgebaut -->
+                    <StackPanel x:Name="LayerPanel" Visibility="Collapsed">
+                        <TextBlock Text="Ebenen (oben = vorne)" Style="{StaticResource PanelLabel}" Margin="0,0,0,4" />
+                        <ListBox x:Name="LayerList" Style="{StaticResource DeviceListBox}" MaxHeight="200" SelectionChanged="OnLayerSelectionChanged" />
+                        <WrapPanel Margin="0,4,0,0">
+                            <Button Content="+ Malen" Margin="0,0,6,6" Click="OnAddPaintLayerClick" ToolTip="Neue, leere Mal-Ebene über der gewählten" />
+                            <Button x:Name="AddShapeButton" Content="+ Form ▾" Margin="0,0,6,6" Click="OnAddShapeClick" ToolTip="Kreis, Ring oder Rechteck als eigene Ebene" />
+                            <Button Content="▲" Style="{StaticResource IconButton}" Margin="0,0,2,6" Click="OnLayerUpClick" ToolTip="Ebene nach vorn" />
+                            <Button Content="▼" Style="{StaticResource IconButton}" Margin="0,0,2,6" Click="OnLayerDownClick" ToolTip="Ebene nach hinten" />
+                            <Button Content="⧉" Style="{StaticResource IconButton}" Margin="0,0,2,6" Click="OnDuplicateLayerClick" ToolTip="Ebene duplizieren" />
+                            <Button Content="🗑" Style="{StaticResource IconButton}" Margin="0,0,0,6" Click="OnDeleteLayerClick" ToolTip="Ebene löschen" />
+                        </WrapPanel>
+                        <StackPanel x:Name="LayerProps" />
+
+                        <Border Height="1" Background="{StaticResource BrushBorder}" Margin="0,12,0,8" />
+                        <DockPanel Margin="0,0,0,6">
+                            <Button x:Name="AddAnimButton" DockPanel.Dock="Right" Content="+ Animation ▾" Click="OnAddAnimationClick"
+                                    ToolTip="Bewegungsvorlage zur gewählten Ebene hinzufügen" />
+                            <TextBlock Text="Animationen" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <ListBox x:Name="AnimList" Style="{StaticResource DeviceListBox}" MaxHeight="160" SelectionChanged="OnAnimSelectionChanged" />
+                        <TextBlock x:Name="AnimHint" Style="{StaticResource MutedText}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"
+                                   Text="Noch keine Animation. Über „+ Animation“ lässt sich die Ebene wandern, wachsen, drehen, atmen oder die Farbe wechseln — ohne jedes Bild einzeln zu malen." />
+                        <StackPanel x:Name="AnimProps" Margin="0,6,0,0" />
+                    </StackPanel>
+                    </Grid>
                 </ScrollViewer>
+                </DockPanel>
             </Border>
         </Grid>
 

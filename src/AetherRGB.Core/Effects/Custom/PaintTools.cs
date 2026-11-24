@@ -401,6 +401,17 @@ public static class PaintTools
 public sealed record PaintEdit(string Description, CellRect Rect, byte[] Before, byte[] After)
 {
     public long Bytes => Before.LongLength + After.LongLength;
+
+    /// <summary>Wird von <see cref="PaintHistory.Push"/> vergeben.</summary>
+    public long Sequence { get; set; }
+}
+
+/// <summary>Fortlaufende Nummer für Rückgängig-Schritte aus verschiedenen Verläufen (Malen pro Bild,
+/// Ebenen/Animationen), damit Strg+Z immer den zuletzt gemachten Schritt zurücknimmt.</summary>
+public static class EditSequence
+{
+    private static long _next;
+    public static long Next() => Interlocked.Increment(ref _next);
 }
 
 /// <summary>Rückgängig/Wiederholen für ein Bild. Hält mindestens <see cref="MinSteps"/> Schritte und
@@ -419,9 +430,15 @@ public sealed class PaintHistory
     public string? UndoDescription => _undo.Count > 0 ? _undo[^1].Description : null;
     public string? RedoDescription => _redo.Count > 0 ? _redo.Peek().Description : null;
 
+    /// <summary>Reihenfolge-Nummer (<see cref="EditSequence"/>) des nächsten Rückgängig-/Wiederholen-Schritts,
+    /// -1 = keiner. Damit lässt sich dieser Verlauf mit anderen (z. B. Ebenen) in eine gemeinsame Reihenfolge bringen.</summary>
+    public long UndoSequence => _undo.Count > 0 ? _undo[^1].Sequence : -1;
+    public long RedoSequence => _redo.Count > 0 ? _redo.Peek().Sequence : -1;
+
     public void Push(PaintEdit? edit)
     {
         if (edit is null) return;
+        edit.Sequence = EditSequence.Next();
         _undo.Add(edit);
         _bytes += edit.Bytes;
         _redo.Clear();
@@ -459,4 +476,7 @@ public sealed class PaintHistory
         _redo.Clear();
         _bytes = 0;
     }
+
+    /// <summary>Wiederholen verwerfen — z. B. wenn anderswo (Ebenen) ein neuer Schritt gemacht wurde.</summary>
+    public void ClearRedo() => _redo.Clear();
 }

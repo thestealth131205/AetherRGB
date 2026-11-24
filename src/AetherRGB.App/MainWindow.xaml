@@ -231,6 +231,24 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Spiele (Razer Chroma) -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <CheckBox x:Name="ChromaEnabledCheck" Content="Spiele per Razer Chroma empfangen" FontWeight="SemiBold" />
+                                <TextBlock Text="Spiele mit Razer-Chroma-Unterstützung (z. B. Fortnite, Apex, Overwatch, Cyberpunk, Warframe) schicken ihre Lichteffekte zu Ereignissen wie Schaden oder Sturm an AetherRGB statt an Razer. Im Effekt-Fenster dafür „Spiel (Razer Chroma) – Tastaturbild“ oder „– Mischfarbe“ wählen. Ohne laufendes Spiel zeigt der Effekt die Regenbogen-Welle. Alles bleibt auf diesem PC."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <TextBlock x:Name="ChromaStatusText" TextWrapping="Wrap" Foreground="{StaticResource BrushText}" Margin="0,0,0,10" />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <Button x:Name="ChromaInstallButton" Content="Chroma-DLL für Spiele installieren" Margin="0,0,8,0" Click="OnChromaInstallClick" />
+                                    <Button x:Name="ChromaUninstallButton" Content="Chroma-DLL entfernen" Click="OnChromaUninstallClick" />
+                                </StackPanel>
+                                <TextBlock Text="Die meisten Spiele laden dafür die Datei RzChromaSDK64.dll aus C:\Windows\System32. AetherRGB legt dort eine eigene, kleine DLL ab, die die Farben nur an AetherRGB weiterreicht (Adminrechte nötig). Ist Razer Synapse installiert, bleibt dessen DLL unangetastet."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                                <TextBlock TextWrapping="Wrap" Foreground="#F59E0B" Margin="0,8,0,0"
+                                           Text="Achtung Anti-Cheat: Die DLL wird in den Spielprozess geladen. Sie ist nicht von Razer signiert. Spiele mit Easy Anti-Cheat oder BattlEye (auch Fortnite) können deshalb den Start verweigern („Untrusted system file“) oder Chroma abschalten. Ein Bann ist nicht auszuschließen. Bei Problemen die DLL hier wieder entfernen." />
+                            </StackPanel>
+                        </Border>
+
                         <!-- Lokale API -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>

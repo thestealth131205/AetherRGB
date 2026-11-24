@@ -17,6 +17,7 @@ public static class CustomEffectSerializer
     public const int MaxLayers = 64;
     public const int MaxFramesPerLayer = 1000;
     public const int MaxKeyframesPerValue = 10_000;
+    public const int MaxAnimationsPerLayer = 32;
     public const long MaxTotalPixelBytes = 64L * 1024 * 1024;
     public const double MinDurationSeconds = 0.1, MaxDurationSeconds = 600;
 
@@ -34,6 +35,7 @@ public static class CustomEffectSerializer
         };
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         options.Converters.Add(new EffectLayerConverter());
+        options.Converters.Add(new AnimationListConverter());
         return options;
     }
 
@@ -115,6 +117,11 @@ public static class CustomEffectSerializer
             }
             if (!double.IsFinite(layer.PivotX) || !double.IsFinite(layer.PivotY))
                 throw new InvalidDataException($"Ebene „{layer.Name}“: ungültiger Drehpunkt.");
+            layer.Animations ??= new();
+            layer.Animations.RemoveAll(a => a is null);
+            if (layer.Animations.Count > MaxAnimationsPerLayer)
+                throw new InvalidDataException($"Ebene „{layer.Name}“: mehr als {MaxAnimationsPerLayer} Animationen.");
+            foreach (var animation in layer.Animations) animation.Normalize();
 
             switch (layer)
             {
@@ -178,6 +185,38 @@ public static class CustomEffectSerializer
                 else child.WriteTo(writer, options);
             }
             writer.WriteEndObject();
+        }
+    }
+    /// <summary>Liest Animationen einzeln: eine unbekannte Art aus einer neueren Version wird übersprungen
+    /// (und gemeldet), statt die ganze Datei abzulehnen.</summary>
+    private sealed class AnimationListConverter : JsonConverter<List<LayerAnimation>>
+    {
+        public override List<LayerAnimation> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            var array = JsonNode.Parse(ref reader) as JsonArray ?? throw new JsonException("Animationen müssen eine Liste sein.");
+            if (array.Count > MaxAnimationsPerLayer * 4) throw new JsonException("Zu viele Animationen.");
+            var result = new List<LayerAnimation>();
+            foreach (var item in array)
+            {
+                if (item is not JsonObject obj) continue;
+                var kind = obj.FirstOrDefault(p => string.Equals(p.Key, "kind", StringComparison.OrdinalIgnoreCase)).Value;
+                string? kindName = kind is JsonValue v && v.TryGetValue<string>(out var str) ? str : null;
+                if (kindName is null || !Enum.TryParse<AnimationKind>(kindName, ignoreCase: true, out var parsed) || !Enum.IsDefined(parsed))
+                {
+                    _skippedLayerTypes?.Add("Animation " + (kindName ?? "(ohne Art)"));
+                    continue;
+                }
+                var animation = obj.Deserialize<LayerAnimation>(options);
+                if (animation is not null) result.Add(animation);
+            }
+            return result;
+        }
+
+        public override void Write(Utf8JsonWriter writer, List<LayerAnimation> value, JsonSerializerOptions options)
+        {
+            writer.WriteStartArray();
+            foreach (var animation in value) JsonSerializer.Serialize(writer, animation, options);
+            writer.WriteEndArray();
         }
     }
 }

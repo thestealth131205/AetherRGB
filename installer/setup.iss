@@ -48,4 +48,6 @@ Filename: "{app}\AetherRGB.exe"; Description: "AetherRGB jetzt starten"; Flags: 
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "AetherRGB"; Flags: uninsdeletevalue dontcreatekey
 
 [UninstallRun]
+; Chroma-Bridge (RzChromaSDK64.dll in System32) entfernen — die App löscht nur ihre eigene DLL, nie die von Razer.
+Filename: "{app}\AetherRGB.exe"; Parameters: "--chroma-bridge uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveChromaBridge"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""AetherRGB"" /F"; Flags: runhidden; RunOnceId: "DeleteAutostartTask"

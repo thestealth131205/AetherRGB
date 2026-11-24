@@ -33,6 +33,14 @@ public partial class App : Application
 
         base.OnStartup(e);
 
+        // Hilfsprozess mit Adminrechten (bzw. Deinstallation): Chroma-Bridge nach System32 legen/entfernen,
+        // ohne Fenster und ohne die Einzelinstanz-Sperre der laufenden App.
+        if (e.Args.Contains(ChromaBridgeInstaller.Argument, StringComparer.OrdinalIgnoreCase))
+        {
+            Shutdown(ChromaBridgeInstaller.RunFromCommandLine(e.Args));
+            return;
+        }
+
         if (!AcquireSingleInstance(e.Args))
         {
             Shutdown();

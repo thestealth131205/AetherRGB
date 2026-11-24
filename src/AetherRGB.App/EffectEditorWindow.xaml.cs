@@ -15,8 +15,10 @@ using Forms = System.Windows.Forms;
 
 namespace AetherRGB.App;
 
-/// <summary>Effekt-Editor: eine Mal-Ebene im Raster des Effekts (160 × 80), als Daumenkino aus mehreren
+/// <summary>Effekt-Editor: Mal-Ebenen im Raster des Effekts (160 × 80), auch als Daumenkino aus mehreren
 /// Frames — die Zeitleiste unter der Fläche zeigt sie als Miniaturen, ein Klick lädt den Frame in die Fläche.
+/// Dazu Form-Ebenen, Animations-Vorlagen und Keyframes (Reiter „Ebenen &amp; Animation“, siehe
+/// <c>EffectEditorWindow.Animation.cs</c>).
 /// Werkzeuge Pinsel, Radierer, Füllen, Linie, Rechteck, Ellipse, Pipette; Rückgängig; die Geräte eines
 /// Effekt-Fensters liegen zur Orientierung an ihrer echten Position darüber, und „Live auf LEDs“ spielt
 /// den aktuellen Stand sofort in diesem Fenster ab. Die Mal-Logik selbst liegt testbar in Core
@@ -84,6 +86,7 @@ public partial class EffectEditorWindow : Window
         _shapes = shapes;
 
         BuildPalette();
+        InitAnimationUi();
         SetColor(_color, remember: false);
         GridOverlay.Fill = CreateGridBrush();
 
@@ -142,15 +145,18 @@ public partial class EffectEditorWindow : Window
             if (layer.Frames[i].Pixels.Length != doc.GridWidth * doc.GridHeight * 4)
                 layer.Frames[i] = PaintFrame.CreateEmpty(doc.GridWidth, doc.GridHeight);
         _layer = layer;
+        _selLayer = layer;
+        _selAnim = null;
+        _selKey = null;
+        _pickCenter = false;
+        _structUndo.Clear();
+        _structRedo.Clear();
         _histories.Clear();
         _frameIndex = 0;
+        _time = Flipbook.FrameStartTime(layer, 0);
+        _editView = true;
         AttachFrame();
         _modified = false;
-
-        int others = doc.Layers.Count - 1;
-        LayerHint.Visibility = others > 0 ? Visibility.Visible : Visibility.Collapsed;
-        LayerHint.Text = $"Dieser Effekt hat {doc.Layers.Count} Ebenen. Bearbeitet werden die Frames der Ebene „{layer.Name}“, " +
-                         "alles andere bleibt erhalten. Mehrere Ebenen kommen in einer späteren Version des Editors.";
 
         _bitmap = new WriteableBitmap(doc.GridWidth, doc.GridHeight, 96, 96, PixelFormats.Bgra32, null);
         _bitmapPixels = new int[doc.GridWidth * doc.GridHeight];
@@ -168,6 +174,7 @@ public partial class EffectEditorWindow : Window
         CrossFadeCheck.IsChecked = layer.CrossFade;
         _suppress = false;
 
+        RebuildLayerUi();
         RebuildTimeline();
         RefreshImage();
         RefreshOnion();
@@ -355,6 +362,7 @@ public partial class EffectEditorWindow : Window
     private void Undo()
     {
         if (_stroke is not null) return;
+        if (StructureUndoIsNewer()) { StructureUndo(); return; }
         var description = _history.UndoDescription;
         if (_history.Undo(_surface) is null) return;
         StatusText.Text = $"Rückgängig: {description}";
@@ -364,6 +372,7 @@ public partial class EffectEditorWindow : Window
     private void Redo()
     {
         if (_stroke is not null) return;
+        if (StructureRedoIsNext()) { StructureRedo(); return; }
         var description = _history.RedoDescription;
         if (_history.Redo(_surface) is null) return;
         StatusText.Text = $"Wiederholt: {description}";
@@ -380,21 +389,26 @@ public partial class EffectEditorWindow : Window
 
     private void UpdateUndoButtons()
     {
-        UndoButton.IsEnabled = _history.CanUndo;
-        RedoButton.IsEnabled = _history.CanRedo;
-        UndoButton.ToolTip = _history.CanUndo ? $"Rückgängig: {_history.UndoDescription} (Strg+Z)" : "Rückgängig (Strg+Z)";
-        RedoButton.ToolTip = _history.CanRedo ? $"Wiederholen: {_history.RedoDescription} (Strg+Y)" : "Wiederholen (Strg+Y)";
+        // Malen (pro Frame) und Ebenen/Animationen haben getrennte Verläufe; es gilt jeweils der jüngere Schritt.
+        string? undo = StructureUndoIsNewer() ? _structUndo[^1].Snapshot.Description : _history.UndoDescription;
+        string? redo = StructureRedoIsNext() ? _structRedo[^1].Snapshot.Description : _history.RedoDescription;
+        UndoButton.IsEnabled = undo is not null;
+        RedoButton.IsEnabled = redo is not null;
+        UndoButton.ToolTip = undo is not null ? $"Rückgängig: {undo} (Strg+Z)" : "Rückgängig (Strg+Z)";
+        RedoButton.ToolTip = redo is not null ? $"Wiederholen: {redo} (Strg+Y)" : "Wiederholen (Strg+Y)";
     }
 
     private void OnClearClick(object sender, RoutedEventArgs e)
     {
-        _history.Push(PaintTools.Clear(_surface));
+        if (!EnsurePaintLayer()) return;
+        PushPaint(PaintTools.Clear(_surface));
         AfterEdit();
     }
 
     private void OnFloodAllClick(object sender, RoutedEventArgs e)
     {
-        _history.Push(PaintTools.Clear(_surface, _color));
+        if (!EnsurePaintLayer()) return;
+        PushPaint(PaintTools.Clear(_surface, _color));
         RememberColor(_color);
         AfterEdit();
     }
@@ -481,8 +495,13 @@ public partial class EffectEditorWindow : Window
         int cx = (int)Math.Floor(cell.X), cy = (int)Math.Floor(cell.Y);
         bool right = e.ChangedButton == MouseButton.Right;
 
+        // Ebenen & Animation: Mittelpunkt setzen oder eine Form verschieben statt malen.
+        if (HandleAnimationMouseDown(cell, right)) { e.Handled = true; return; }
+
         // Alt + Klick = Pipette, aus jedem Werkzeug heraus.
-        if (_tool == Tool.Picker || (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && !right))
+        bool picking = _tool == Tool.Picker || (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && !right);
+        if (!picking && !EnsureEditView()) { e.Handled = true; return; }
+        if (picking)
         {
             PickColor(cx, cy);
             if (_tool == Tool.Picker) SelectTool(_toolBeforePicker);
@@ -496,7 +515,7 @@ public partial class EffectEditorWindow : Window
             var edit = PaintTools.Fill(_surface, cx, cy, _color, OpacitySlider.Value / 100.0, (int)ToleranceSlider.Value, ContiguousCheck.IsChecked == true);
             if (edit is not null)
             {
-                _history.Push(edit);
+                PushPaint(edit);
                 RememberColor(_color);
                 AfterEdit();
             }
@@ -520,12 +539,14 @@ public partial class EffectEditorWindow : Window
         var cell = ToCell(e);
         int cx = (int)Math.Floor(cell.X), cy = (int)Math.Floor(cell.Y);
         CellText.Text = _surface.Contains(cx, cy) ? $"Zelle {cx + 1}, {cy + 1}  ·  {_surface.Width} × {_surface.Height}" : "";
+        if (HandleAnimationMouseMove(cell)) return;
         UpdateCursor(cell);
         if (_stroke is not null) DrawStroke(cell, Keyboard.Modifiers.HasFlag(ModifierKeys.Shift));
     }
 
     private void OnCanvasMouseUp(object sender, MouseButtonEventArgs e)
     {
+        if (HandleAnimationMouseUp()) return;
         if (_stroke is null) return;
         FinishStroke();
         InputCanvas.ReleaseMouseCapture();
@@ -534,6 +555,7 @@ public partial class EffectEditorWindow : Window
     /// <summary>Fenster verliert die Maus mitten im Strich (Alt+Tab o. Ä.) — Strich so übernehmen, wie er ist.</summary>
     private void OnCanvasLostCapture(object sender, MouseEventArgs e)
     {
+        HandleAnimationMouseUp();
         if (_stroke is not null) FinishStroke();
     }
 
@@ -602,7 +624,7 @@ public partial class EffectEditorWindow : Window
         };
         var edit = stroke.Finish(description);
         if (edit is null) return;
-        _history.Push(edit);
+        PushPaint(edit);
         if (_strokeTool != Tool.Eraser) RememberColor(_color);
         AfterEdit();
     }
@@ -620,7 +642,7 @@ public partial class EffectEditorWindow : Window
     private void UpdateCursor(Point? cell)
     {
         CursorOverlay.Children.Clear();
-        if (cell is not { } c || _tool is Tool.Fill or Tool.Picker) return;
+        if (cell is not { } c || _tool is Tool.Fill or Tool.Picker || _selLayer is not PaintLayer || _pickCenter) return;
         int size = (int)SizeSlider.Value;
         double cx = size % 2 == 1 ? Math.Floor(c.X) + 0.5 : Math.Round(c.X);
         double cy = size % 2 == 1 ? Math.Floor(c.Y) + 0.5 : Math.Round(c.Y);
@@ -714,6 +736,8 @@ public partial class EffectEditorWindow : Window
         if (ctrl && (key == Key.Y || (key == Key.Z && shift))) { Redo(); e.Handled = true; return; }
         if (ctrl && key == Key.Z) { Undo(); e.Handled = true; return; }
         if (ctrl && key == Key.D && _stroke is null) { AddFrame(copy: true); e.Handled = true; return; }
+        if (key == Key.Escape && _pickCenter) { CancelPickCenter(); e.Handled = true; return; }
+        if (key == Key.Delete && _stroke is null && !ctrl && DeleteSelectedKeyframe()) { e.Handled = true; return; }
         if (key == Key.Escape && _stroke is not null)
         {
             // Strich/Form abbrechen, ohne etwas zu übernehmen.
@@ -737,6 +761,9 @@ public partial class EffectEditorWindow : Window
             case Key.O: SelectTool(Tool.Ellipse); break;
             case Key.I: SelectTool(Tool.Picker); break;
             case Key.N: AddFrame(copy: shift); break;
+            case Key.Space when Keyboard.FocusedElement is not (Button or CheckBox or ComboBox or ComboBoxItem):
+                OnPlayClick(this, e);
+                break;
             // Pfeiltasten wechseln den Frame — außer ein Regler oder eine Auswahlliste hat den Fokus.
             case Key.Left or Key.Right when Keyboard.FocusedElement is not (Slider or ComboBox or ComboBoxItem):
                 SelectFrame(_frameIndex + (key == Key.Left ? -1 : 1));
@@ -752,11 +779,19 @@ public partial class EffectEditorWindow : Window
     // ===================== Anzeige =====================
 
     /// <summary>Zeigt genau das, was die LEDs zeigen würden: alle Ebenen zusammengesetzt, durchsichtig = schwarz.</summary>
-    private void RefreshImage() => RenderToCanvas(Flipbook.FrameStartTime(_layer, _frameIndex));
-
-    private void RenderToCanvas(double time)
+    /// <remarks>Beim Malen und Verschieben einer Form (Bearbeiten-Ansicht) liegt die gewählte Ebene ohne
+    /// Verschiebung, Drehung und Animation da, damit die Zellen genau unter dem Pinsel liegen. Wird ein Zeitpunkt gewählt, zeigt die
+    /// Fläche den ganzen Effekt mit allen Animationen.</remarks>
+    private void RefreshImage()
     {
-        _frame = CustomEffectRenderer.Render(_doc, time, _frame);
+        if (_playTimer.IsEnabled) return;
+        RenderToCanvas(_time, _editView ? new EffectRenderOptions { Untransformed = _selLayer } : default);
+        RefreshAnimOverlay();
+    }
+
+    private void RenderToCanvas(double time, EffectRenderOptions options = default)
+    {
+        _frame = CustomEffectRenderer.Render(_doc, time, _frame, options);
         int w = _frame.Width, h = _frame.Height;
         var rgb = _frame.Rgb;
         for (int i = 0; i < w * h; i++)
@@ -927,6 +962,9 @@ public partial class EffectEditorWindow : Window
         index = Math.Clamp(index, 0, _layer.Frames.Count - 1);
         _frameIndex = index;
         AttachFrame();
+        _time = Flipbook.FrameStartTime(_layer, index);
+        _editView = true;
+        UpdateTimeRow();
         RefreshImage();
         RefreshOnion();
         UpdateTimelineSelection(_frameIndex);
@@ -938,7 +976,7 @@ public partial class EffectEditorWindow : Window
     /// <summary>Neuer Frame direkt hinter dem aktuellen, leer oder als Kopie — danach wird dort weitergemalt.</summary>
     private void AddFrame(bool copy)
     {
-        if (_stroke is not null) return;
+        if (_stroke is not null || !EnsurePaintLayer()) return;
         StopPlayback();
         try
         {
@@ -956,14 +994,14 @@ public partial class EffectEditorWindow : Window
 
     private void DeleteFrame(int index)
     {
-        if (_stroke is not null || index < 0 || index >= _layer.Frames.Count) return;
+        if (_stroke is not null || _selLayer is not PaintLayer || index < 0 || index >= _layer.Frames.Count) return;
         StopPlayback();
         var frame = _layer.Frames[index];
         if (_layer.Frames.Count == 1)
         {
             // Der einzige Frame bleibt; er wird nur geleert — rückgängig machbar wie „Leeren“.
             SelectFrame(0);
-            _history.Push(PaintTools.Clear(_surface));
+            PushPaint(PaintTools.Clear(_surface));
             AfterEdit();
             StatusText.Text = "Der einzige Frame wurde geleert.";
             return;
@@ -982,7 +1020,7 @@ public partial class EffectEditorWindow : Window
 
     private void MoveFrame(int delta)
     {
-        if (_stroke is not null) return;
+        if (_stroke is not null || _selLayer is not PaintLayer) return;
         int to = Flipbook.Move(_doc, _layer, _frameIndex, _frameIndex + delta);
         if (to == _frameIndex) return;
         RebuildTimeline();
@@ -1092,15 +1130,15 @@ public partial class EffectEditorWindow : Window
         FrameInfoText.Text = n == 1 ? "1 Frame (Standbild)" : $"Frame {_frameIndex + 1} / {n}  ·  {total:0.##} s";
         MoveFrameLeftButton.IsEnabled = _frameIndex > 0;
         MoveFrameRightButton.IsEnabled = _frameIndex < n - 1;
-        PlayButton.IsEnabled = n > 1 || _doc.Layers.Count > 1;
-        NextFrameButton.IsEnabled = n < CustomEffectSerializer.MaxFramesPerLayer;
+        PlayButton.IsEnabled = n > 1 || _doc.Layers.Count > 1 || HasAnyMotion();
+        NextFrameButton.IsEnabled = n < CustomEffectSerializer.MaxFramesPerLayer && _selLayer is PaintLayer;
     }
 
     /// <summary>Zwiebelhaut: der vorige Frame schwach über der Fläche, damit man Bewegungen weiterzeichnen kann.</summary>
     private void RefreshOnion()
     {
         if (OnionImage is null || _onionBitmap is null || _layer is null) return;
-        bool show = OnionCheck.IsChecked == true && _frameIndex > 0 && !_playTimer.IsEnabled;
+        bool show = OnionCheck.IsChecked == true && _frameIndex > 0 && !_playTimer.IsEnabled && _editView && _selLayer == _layer;
         OnionImage.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (!show) return;
         var px = _layer.Frames[_frameIndex - 1].Pixels;
@@ -1133,6 +1171,7 @@ public partial class EffectEditorWindow : Window
                 Flipbook.SyncDuration(_doc);
                 MarkModified();
                 UpdateFrameInfo();
+                UpdateTimeRow();
                 if (_playTimer.IsEnabled) StartPlayback();
             }
         }
@@ -1165,7 +1204,7 @@ public partial class EffectEditorWindow : Window
     private void StartPlayback()
     {
         if (_stroke is not null) return;
-        _playOffset = Flipbook.FrameStartTime(_layer, _frameIndex);
+        _playOffset = _time;
         _playClock.Restart();
         _playTimer.Start();
         PlayButton.Content = "⏸  Anhalten";
@@ -1183,6 +1222,7 @@ public partial class EffectEditorWindow : Window
         RefreshImage();
         RefreshOnion();
         UpdateTimelineSelection(_frameIndex);
+        UpdateTimeRow();
         return true;
     }
 
@@ -1191,5 +1231,6 @@ public partial class EffectEditorWindow : Window
         double time = CustomEffectRenderer.MapTime(_doc, _playOffset + _playClock.Elapsed.TotalSeconds);
         RenderToCanvas(time);
         UpdateTimelineSelection(CustomEffectRenderer.PickFrames(_layer, time).Current);
+        ShowPlayheadTime(time);
     }
 }

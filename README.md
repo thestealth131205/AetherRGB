@@ -57,8 +57,21 @@ oder Telemetrie.
   Die Zeitleiste unter der Fläche zeigt alle Frames als Miniaturen — Klick lädt einen Frame in die Fläche,
   ✕ löscht ihn. Dazu Duplizieren (Strg+D), Verschieben, Dauer pro Frame (ms), weiches Überblenden,
   Zwiebelhaut (voriger Frame scheint durch), Abspielen im Editor und ←/→ zum Blättern.
-  Rückgängig gilt pro Frame.
-  Animations-Vorlagen (Wandern, ausdehnender Kreis …) folgen in der nächsten Ausbaustufe.
+  **Ebenen & Animation** (zweiter Reiter rechts): mehrere Ebenen — Mal-Ebenen und Formen (Kreis, Ring,
+  Rechteck) — mit Sichtbarkeit, Reihenfolge, Duplizieren und Mischmodus (Normal, Addieren,
+  Multiplizieren, Aufhellen). **Animations-Vorlagen** pro Ebene, beliebig kombinierbar: Wandern nach
+  rechts/links/oben/unten/diagonal oder im freien Winkel (umlaufend oder nicht), Ausdehnender Kreis
+  (auch als mehrere Wellen, blendet aus), Zusammenziehen, Pulsieren, Drehen, Atmen, Blinken, Farbe
+  wechseln — jeweils mit Dauer, Versatz/Verzögerung, Schleife/Hin und zurück/Einmal und Verlauf.
+  „+ Form → Kreis-Welle“ legt einen Ring an, der sich vom angeklickten Punkt ausdehnt. Formen lassen sich
+  auf der Fläche verschieben, Mittelpunkte per Klick setzen.
+  **Keyframes:** Alle Werte einer Ebene (Versatz, Größe, Drehung, Deckkraft, Farbton, Mitte, Radius …)
+  bekommen per „◆“ einen Keyframe am aktuellen Zeitpunkt; danach legt jede Änderung an einem anderen
+  Zeitpunkt einen weiteren an. Die Zeitleiste zeigt sie als Rauten (ziehen = verschieben, Rechtsklick =
+  Verlauf/Löschen, Entf = löschen). Zeit-Regler, Leertaste = Abspielen, Länge der Zeitleiste automatisch
+  (so dass sich alles nahtlos wiederholt) oder von Hand, Schleife/Hin und zurück/Einmal.
+  Rückgängig nimmt immer den letzten Schritt zurück — beim Malen pro Frame, dazu Ebenen, Animationen
+  und Keyframes.
 - **Synchrone Effekt-Fenster**: Im Dropdown „⇄ Synchron“ über den Tabs lassen sich Effekt-Fenster
   anhaken, die im Gleichschritt laufen sollen — sie übernehmen beim Anhaken, Fortsetzen und App-Start
   die Effektzeit der anderen markierten Fenster („Markierte Effekte gemeinsam neu starten“ setzt alle
@@ -67,6 +80,20 @@ oder Telemetrie.
   Einstellungen). Normal über `HKCU\...\Run`; mit dem Mystic Light SDK (braucht Adminrechte) über eine
   Aufgabe „AetherRGB“ in der Aufgabenplanung mit höchsten Privilegien, damit keine UAC-Abfrage kommt.
   Es läuft immer nur eine Instanz; ein zweiter Start holt das vorhandene Fenster nach vorn.
+- **Spiele per Razer Chroma** (Fortnite, Apex, Overwatch, Cyberpunk, Warframe …): AetherRGB nimmt die
+  Lichteffekte entgegen, die Spiele eigentlich an Razer schicken, und zeigt sie im Effekt
+  „Spiel (Razer Chroma) – Tastaturbild“ (das 6×22-Tastenraster über die ganze Fläche gelegt) oder
+  „– Mischfarbe“ (eine Farbe, bevorzugt aus Chroma Link). Ohne Spiel läuft die Regenbogen-Welle.
+  Zwei Wege, beide nur lokal:
+  - **REST-API**: AetherRGB stellt die Chroma-REST-API unter `http://localhost:54235/razer/chromasdk`
+    bereit (Sitzungen, Heartbeat, `CHROMA_STATIC/CUSTOM/CUSTOM_KEY`, gespeicherte Effekte). Läuft Razer
+    Synapse, ist der Port belegt und Synapse bekommt diese Spiele.
+  - **Chroma-DLL** (`native/ChromaBridge`, C): Ersatz für `RzChromaSDK64.dll`/`RzChromaSDK.dll`, die auf
+    Knopfdruck nach System32/SysWOW64 gelegt wird (Adminrechte, nie über eine Razer-DLL). Sie reicht jeden
+    Effekt unverändert per UDP an `127.0.0.1:34535` weiter, alles Weitere passiert in AetherRGB.
+    **Anti-Cheat:** Die DLL läuft im Spielprozess und ist nicht von Razer signiert. Spiele mit Easy
+    Anti-Cheat oder BattlEye können den Start verweigern („Untrusted system file“) oder Chroma
+    abschalten; Spiele, die die Razer-Signatur der DLL prüfen, nutzen sie gar nicht.
 
 ## Architektur
 
@@ -76,7 +103,8 @@ AetherRGB.Providers.OpenRGB     Motherboard-ARGB via OpenRGB-SDK-Protokoll
 AetherRGB.Providers.Wled        WLED-Geräte via UDP-Echtzeit + JSON-API
 AetherRGB.Providers.HomeAssistant  Home-Assistant-Lichter als Ziel UND als Quelle
 AetherRGB.Providers.MsiMysticLight MSI-RGB via offiziellem Mystic Light SDK oder direkt per USB/HID
-AetherRGB.Api                   Lokale REST-API (nur 127.0.0.1), ASP.NET Core Minimal API
+AetherRGB.Api                   Lokale REST-API (nur 127.0.0.1) und Chroma-REST-Nachbau (localhost:54235)
+native/ChromaBridge             Ersatz-RzChromaSDK64.dll (C) → UDP an AetherRGB
 AetherRGB.App                   WPF-Hauptanwendung
 ```
 

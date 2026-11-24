@@ -9,9 +9,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AetherRGB.App</RootNamespace>
     <AssemblyName>AetherRGB</AssemblyName>
-    <Version>0.3.7</Version>
-    <AssemblyVersion>0.3.7.0</AssemblyVersion>
-    <FileVersion>0.3.7.0</FileVersion>
+    <Version>0.3.8</Version>
+    <AssemblyVersion>0.3.8.0</AssemblyVersion>
+    <FileVersion>0.3.8.0</FileVersion>
     <Product>AetherRGB</Product>
     <Company>thestealth131205</Company>
     <!-- Logo (erzeugt von tools/make_icon.py): EXE-/Taskleisten-Symbol; WPF-Fenster ohne eigenes
@@ -36,6 +36,15 @@
     <!-- Tray-Symbol (NotifyIcon braucht ein System.Drawing.Icon) und Logo in der Seitenleiste -->
     <EmbeddedResource Include="Assets\AetherRGB.ico" LogicalName="AetherRGB.ico" />
     <Resource Include="Assets\AetherRGB-64.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Chroma-Bridge (Ersatz für RzChromaSDK64.dll), baut die CI vorher mit MSVC aus native/ChromaBridge.
+         Fehlt sie (lokaler Build), kann die App sie eben nicht installieren. -->
+    <EmbeddedResource Include="..\..\native\ChromaBridge\bin\x64\RzChromaSDK64.dll" LogicalName="ChromaBridge.x64.dll"
+                      Condition="Exists('..\..\native\ChromaBridge\bin\x64\RzChromaSDK64.dll')" />
+    <EmbeddedResource Include="..\..\native\ChromaBridge\bin\x86\RzChromaSDK.dll" LogicalName="ChromaBridge.x86.dll"
+                      Condition="Exists('..\..\native\ChromaBridge\bin\x86\RzChromaSDK.dll')" />
   </ItemGroup>
 
   <ItemGroup>

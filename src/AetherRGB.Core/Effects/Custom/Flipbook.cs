@@ -81,14 +81,15 @@ public static class Flipbook
         return true;
     }
 
-    /// <summary>Besteht das Dokument nur aus Mal-Ebenen, ist die Zeitleiste genau so lang wie das längste
-    /// Daumenkino — sonst würde <see cref="CustomEffectRenderer.MapTime"/> das Daumenkino mitten im Bild
-    /// abschneiden. Mit Form-Ebenen (eigene Keyframes) bleibt die Länge, wie sie ist.</summary>
+    /// <summary>Mit <see cref="CustomEffectDocument.AutoDuration"/> ist die Zeitleiste genau so lang, dass sich
+    /// Daumenkinos, Animationen und Keyframes nahtlos wiederholen (<see cref="LayerAnimator.SeamlessDuration"/>)
+    /// — sonst würde <see cref="CustomEffectRenderer.MapTime"/> ein Daumenkino mitten im Bild abschneiden.
+    /// Ohne Automatik bleibt die Länge, wie sie eingestellt ist.</summary>
     public static void SyncDuration(CustomEffectDocument document)
     {
-        if (document.Layers.Any(l => l is not PaintLayer)) return;
-        double longest = document.Layers.OfType<PaintLayer>().Max(TotalDuration);
-        if (longest <= 0 || !double.IsFinite(longest)) return;
-        document.DurationSeconds = Math.Clamp(longest, CustomEffectSerializer.MinDurationSeconds, CustomEffectSerializer.MaxDurationSeconds);
+        if (!document.AutoDuration) return;
+        double seamless = LayerAnimator.SeamlessDuration(document);
+        if (seamless <= 0 || !double.IsFinite(seamless)) return;
+        document.DurationSeconds = Math.Clamp(seamless, CustomEffectSerializer.MinDurationSeconds, CustomEffectSerializer.MaxDurationSeconds);
     }
 }
