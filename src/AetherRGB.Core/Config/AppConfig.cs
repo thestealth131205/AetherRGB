@@ -21,6 +21,13 @@ public sealed class HomeAssistantConfig
     public bool Enabled { get; set; } = false;
     public string BaseUrl { get; set; } = "http://homeassistant.local:8123";
     public string LongLivedToken { get; set; } = "";
+
+    /// <summary>Höchstens ein Befehl pro HA-Licht alle so viele Sekunden (Mittelwert der Effektfarben
+    /// dazwischen). Mindestens 3 — mehr vertragen viele Lampen/Funknetze nicht.</summary>
+    public double MinUpdateIntervalSeconds { get; set; } = 3;
+
+    /// <summary>HA-<c>transition</c> = Intervall mitsenden, damit Lampen weich überblenden.</summary>
+    public bool UseTransition { get; set; } = true;
 }
 
 public sealed class LocalApiConfig
@@ -81,6 +88,9 @@ public sealed class AppConfig
 {
     public OpenRgbConfig OpenRgb { get; set; } = new();
     public List<WledInstanceConfig> WledInstances { get; set; } = new();
+
+    /// <summary>WLED-Effektbilder per UDP-Echtzeit (DRGB/DNRGB) statt per JSON-API senden.</summary>
+    public bool WledUseUdpRealtime { get; set; } = true;
     public HomeAssistantConfig HomeAssistant { get; set; } = new();
     public LocalApiConfig LocalApi { get; set; } = new();
     public MsiMysticLightConfig MsiMysticLight { get; set; } = new();

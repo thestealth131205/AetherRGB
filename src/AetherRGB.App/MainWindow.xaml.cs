@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -248,10 +249,17 @@ public partial class MainWindow : Window
             _registry.Register(new OpenRgbDeviceProvider(_config.OpenRgb.Host, _config.OpenRgb.Port));
 
         if (_config.WledInstances.Count > 0)
-            _registry.Register(new WledDeviceProvider(_config.WledInstances.Select(w => (w.Name, w.Host))));
+            _registry.Register(new WledDeviceProvider(_config.WledInstances.Select(w => (w.Name, w.Host)))
+            {
+                UseUdpRealtime = _config.WledUseUdpRealtime
+            });
 
         if (_config.HomeAssistant.Enabled && !string.IsNullOrWhiteSpace(_config.HomeAssistant.LongLivedToken))
-            _registry.Register(new HomeAssistantDeviceProvider(_config.HomeAssistant.BaseUrl, _config.HomeAssistant.LongLivedToken));
+            _registry.Register(new HomeAssistantDeviceProvider(_config.HomeAssistant.BaseUrl, _config.HomeAssistant.LongLivedToken)
+            {
+                MinUpdateInterval = TimeSpan.FromSeconds(_config.HomeAssistant.MinUpdateIntervalSeconds),
+                UseTransition = _config.HomeAssistant.UseTransition
+            });
 
         switch (_config.MsiMysticLight.Backend)
         {
@@ -378,6 +386,9 @@ public partial class MainWindow : Window
         HaEnabledCheck.IsChecked = _config.HomeAssistant.Enabled;
         HaUrlBox.Text = _config.HomeAssistant.BaseUrl;
         HaTokenBox.Password = _config.HomeAssistant.LongLivedToken;
+        HaIntervalBox.Text = _config.HomeAssistant.MinUpdateIntervalSeconds.ToString("0.#", CultureInfo.CurrentCulture);
+        HaTransitionCheck.IsChecked = _config.HomeAssistant.UseTransition;
+        WledUdpCheck.IsChecked = _config.WledUseUdpRealtime;
 
         LocalApiEnabledCheck.IsChecked = _config.LocalApi.Enabled;
         LocalApiPortBox.Text = _config.LocalApi.Port.ToString();
@@ -433,6 +444,11 @@ public partial class MainWindow : Window
         _config.HomeAssistant.Enabled = HaEnabledCheck.IsChecked == true;
         _config.HomeAssistant.BaseUrl = string.IsNullOrWhiteSpace(HaUrlBox.Text) ? _config.HomeAssistant.BaseUrl : HaUrlBox.Text.Trim();
         _config.HomeAssistant.LongLivedToken = HaTokenBox.Password;
+        _config.HomeAssistant.MinUpdateIntervalSeconds = double.TryParse(HaIntervalBox.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var haInterval)
+            ? Math.Clamp(haInterval, HomeAssistantDeviceProvider.MinAllowedInterval.TotalSeconds, 60)
+            : _config.HomeAssistant.MinUpdateIntervalSeconds;
+        _config.HomeAssistant.UseTransition = HaTransitionCheck.IsChecked == true;
+        _config.WledUseUdpRealtime = WledUdpCheck.IsChecked == true;
 
         _config.LocalApi.Enabled = LocalApiEnabledCheck.IsChecked == true;
         _config.LocalApi.Port = int.TryParse(LocalApiPortBox.Text, out var apiPort) ? apiPort : 34533;
