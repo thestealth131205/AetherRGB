@@ -150,11 +150,169 @@
                 <Setter Property="CaretBrush" Value="{StaticResource BrushText}" />
             </Style>
 
+            <!-- ComboBox mit eigenem Template: das Windows-Standard-Template ignoriert Background und
+                 zeichnet Knopf und Aufklappliste hell, unser heller Text war darauf nicht lesbar. -->
+            <Style x:Key="ComboToggle" TargetType="ToggleButton">
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="ClickMode" Value="Press" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Border x:Name="Bd" Background="{StaticResource BrushPanel}" BorderBrush="{StaticResource BrushBorder}"
+                                    BorderThickness="1" CornerRadius="6">
+                                <Path x:Name="Arrow" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0"
+                                      Data="M 0 0 L 4 4 L 8 0" Stroke="{StaticResource BrushTextMuted}" StrokeThickness="1.5" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BrushAccent}" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BrushAccent}" />
+                                    <Setter TargetName="Arrow" Property="Stroke" Value="{StaticResource BrushText}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <Style TargetType="ComboBox">
                 <Setter Property="Background" Value="{StaticResource BrushPanel}" />
                 <Setter Property="Foreground" Value="{StaticResource BrushText}" />
                 <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}" />
                 <Setter Property="Padding" Value="8,6" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBox">
+                            <Grid>
+                                <ToggleButton Style="{StaticResource ComboToggle}"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
+                                <ContentPresenter Margin="10,0,28,0" VerticalAlignment="Center" HorizontalAlignment="Left" IsHitTestVisible="False"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}" />
+                                <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
+                                       IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Fade">
+                                    <Border Background="{StaticResource BrushPanelAlt}" BorderBrush="{StaticResource BrushBorder}"
+                                            BorderThickness="1" CornerRadius="6" Margin="0,4,0,0" Padding="4"
+                                            MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                            MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                        <ScrollViewer SnapsToDevicePixels="True">
+                                            <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style TargetType="ComboBoxItem">
+                <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+                <Setter Property="Padding" Value="8,6" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBoxItem">
+                            <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsHighlighted" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource BrushBorder}" />
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource BrushAccent}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Kontextmenü (z. B. Plus-Menü der Effekt-Fenster): dunkel statt Windows-Standard (hell),
+                 sonst greift der globale helle TextBlock-Stil und der Text ist weiß auf weiß. -->
+            <Style TargetType="ContextMenu">
+                <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+                <Setter Property="OverridesDefaultStyle" Value="True" />
+                <Setter Property="HasDropShadow" Value="False" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ContextMenu">
+                            <Border Background="{StaticResource BrushPanelAlt}" BorderBrush="{StaticResource BrushBorder}"
+                                    BorderThickness="1" CornerRadius="6" Padding="4">
+                                <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Einfaches MenuItem ohne Untermenüs (werden in der App nicht verwendet) -->
+            <Style TargetType="MenuItem">
+                <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+                <Setter Property="Padding" Value="10,6" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="MenuItem">
+                            <Border x:Name="Bd" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"
+                                                  TextElement.Foreground="{TemplateBinding Foreground}">
+                                    <!-- leerer Stil hebt den globalen TextBlock-Stil auf, damit die
+                                         gedimmte Farbe bei deaktivierten Einträgen ankommt -->
+                                    <ContentPresenter.Resources>
+                                        <Style TargetType="TextBlock" />
+                                    </ContentPresenter.Resources>
+                                </ContentPresenter>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsHighlighted" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{StaticResource BrushAccent}" />
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Foreground" Value="{StaticResource BrushTextMuted}" />
+                                    <Setter Property="Cursor" Value="Arrow" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="Separator">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Separator">
+                            <Border Height="1" Margin="6,4" Background="{StaticResource BrushBorder}" />
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Tooltips ebenfalls dunkel (Windows-Standard ist hell, der Text wäre unlesbar) -->
+            <Style TargetType="ToolTip">
+                <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ToolTip">
+                            <Border Background="{StaticResource BrushPanelAlt}" BorderBrush="{StaticResource BrushBorder}"
+                                    BorderThickness="1" CornerRadius="4" Padding="8,5">
+                                <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}" />
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
             </Style>
 
             <Style TargetType="CheckBox">

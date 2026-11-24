@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
@@ -44,6 +45,7 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        CleanupOldPortableExe();
         _config = AppConfig.LoadOrCreateDefault();
         _engine = new CanvasEffectEngine(_registry);
         _engine.SetScenes(_scenes);
@@ -492,26 +494,135 @@ public partial class MainWindow : Window
     private async void OnCheckUpdateClick(object sender, RoutedEventArgs e)
     {
         var currentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+        var originalContent = UpdateButton.Content;
+        UpdateButton.IsEnabled = false;
+        UpdateButton.Content = "Suche …";
         try
         {
             var release = await _updateChecker.CheckForUpdateAsync(currentVersion);
             if (release is null)
             {
-                MessageBox.Show(this, "Du nutzt bereits die neueste Version.", "AetherRGB — Update", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, $"Du nutzt bereits die neueste Version ({currentVersion}).", "AetherRGB — Update", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Installiert = Inno Setup hat seinen Uninstaller neben die EXE gelegt. Sonst läuft die
+            // portable EXE, und die wird durch die neue portable EXE ersetzt.
+            bool installed = File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
+            var asset = installed ? release.Setup : release.Portable;
+            if (asset is null)
+            {
+                var open = MessageBox.Show(this,
+                    $"Version {release.Version} ist verfügbar, enthält aber keine passende Datei ({(installed ? UpdateChecker.SetupAssetName : UpdateChecker.PortableAssetName)}).\nRelease-Seite im Browser öffnen?",
+                    "AetherRGB — Update verfügbar", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (open == MessageBoxResult.Yes) OpenUrl(release.ReleaseNotesUrl);
                 return;
             }
 
             var answer = MessageBox.Show(this,
-                $"Version {release.Version} ist verfügbar (aktuell: {currentVersion}).\nSeite jetzt im Browser öffnen?",
+                $"Version {release.Version} ist verfügbar (aktuell: {currentVersion}).\n\n" +
+                (installed
+                    ? "Installer jetzt herunterladen und starten? AetherRGB wird dafür beendet."
+                    : "Neue portable Version jetzt herunterladen? Die EXE wird ersetzt und AetherRGB neu gestartet."),
                 "AetherRGB — Update verfügbar", MessageBoxButton.YesNo, MessageBoxImage.Question);
-            if (answer == MessageBoxResult.Yes)
-                Process.Start(new ProcessStartInfo(release.DownloadUrl) { UseShellExecute = true });
+            if (answer != MessageBoxResult.Yes) return;
+
+            var progress = new Progress<double>(p => UpdateButton.Content = $"Lade … {p:P0}");
+            Log($"Lade {asset.Name} ({asset.Size / 1024.0 / 1024.0:F1} MB) von GitHub …");
+            if (asset.Sha256 is null) Log("  ⚠ Release enthält keine SHA-256-Prüfsumme — nur die Dateigröße wird geprüft.");
+
+            if (installed) await InstallSetupUpdateAsync(asset, release.Version, progress);
+            else await ReplacePortableExeAsync(asset, release.Version, progress);
         }
         catch (Exception ex)
         {
-            Log("Update-Prüfung fehlgeschlagen: " + ex.Message);
+            Log("Update fehlgeschlagen: " + ex.Message);
+            MessageBox.Show(this, "Update fehlgeschlagen:\n\n" + ex.Message, "AetherRGB — Update", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            UpdateButton.Content = originalContent;
+            UpdateButton.IsEnabled = true;
         }
     }
+
+    private async Task InstallSetupUpdateAsync(ReleaseAsset asset, string version, IProgress<double> progress)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "AetherRGB-Update");
+        Directory.CreateDirectory(dir);
+        var setupPath = Path.Combine(dir, $"AetherRGB-Setup-x64-{version}.exe");
+        await _updateChecker.DownloadAsync(asset, setupPath, progress);
+        Log("Download fertig, starte Installer: " + setupPath);
+
+        try
+        {
+            // Normaler Assistent statt /SILENT: Inno Setup übernimmt den bisherigen Installationsordner,
+            // fragt nach Adminrechten und bietet am Ende "AetherRGB jetzt starten" an.
+            Process.Start(new ProcessStartInfo(setupPath) { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            Log("Installer-Start abgebrochen. Er liegt unter: " + setupPath);
+            return;
+        }
+        ExitFromTray();
+    }
+
+    private async Task ReplacePortableExeAsync(ReleaseAsset asset, string version, IProgress<double> progress)
+    {
+        var exePath = Environment.ProcessPath ?? throw new InvalidOperationException("Pfad der laufenden EXE unbekannt.");
+        var newPath = exePath + ".new";
+        try
+        {
+            await _updateChecker.DownloadAsync(asset, newPath, progress);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Ordner der portablen EXE ist schreibgeschützt — dann wenigstens in Downloads ablegen.
+            var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            var fallback = Path.Combine(downloads, $"AetherRGB-Portable-x64-{version}.exe");
+            await _updateChecker.DownloadAsync(asset, fallback, progress);
+            Log("Kein Schreibzugriff auf den EXE-Ordner — neue Version liegt unter: " + fallback);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{fallback}\"") { UseShellExecute = true });
+            return;
+        }
+
+        // Windows erlaubt, eine laufende EXE umzubenennen (nicht zu löschen). Die alte Datei räumt
+        // der nächste Start in CleanupOldPortableExe() weg.
+        var oldPath = exePath + ".old";
+        File.Delete(oldPath);
+        File.Move(exePath, oldPath);
+        try
+        {
+            File.Move(newPath, exePath);
+        }
+        catch
+        {
+            File.Move(oldPath, exePath);
+            throw;
+        }
+
+        Log($"Version {version} installiert, starte neu …");
+        Process.Start(new ProcessStartInfo(exePath) { UseShellExecute = true });
+        ExitFromTray();
+    }
+
+    /// <summary>Entfernt die nach einem portablen Update übrig gebliebene <c>.old</c>-EXE.</summary>
+    private static void CleanupOldPortableExe()
+    {
+        if (Environment.ProcessPath is not { } exePath) return;
+        // Der alte Prozess beendet sich evtl. gerade erst — kurz warten und notfalls beim nächsten Start.
+        _ = Task.Run(async () =>
+        {
+            for (int i = 0; i < 10 && File.Exists(exePath + ".old"); i++)
+            {
+                try { File.Delete(exePath + ".old"); }
+                catch { await Task.Delay(1000); }
+            }
+        });
+    }
+
+    private static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
     private void Log(string message) => LogText.Text = message + "\n" + LogText.Text;
 

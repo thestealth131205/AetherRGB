@@ -55,6 +55,10 @@ Build läuft ausschließlich über GitHub Actions (Windows-Runner, `.github/work
   SmartScreen trotzdem zunächst warnen, bis genug Reputation für diese Signatur aufgebaut ist.
 - "Reparieren" und "Nach Updates suchen" sind App-interne Funktionen (kein natives
   MSI-Repair-Feature), siehe `AetherRGB.Core/Update/`.
+- "Nach Updates suchen" fragt das neueste GitHub-Release ab und lädt bei Bedarf die passende Datei
+  (geprüft per Größe und SHA-256 aus der Releases-API): Bei installierter App den Installer
+  (startet danach, AetherRGB beendet sich), bei der portablen EXE die neue portable EXE, die die
+  alte ersetzt und neu startet.
 
 ## Lizenz
 

@@ -15,30 +15,30 @@ internal sealed class MysticLightSdkNative
 {
     public const int MLAPI_OK = 0;
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int InitializeFn();
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int ReleaseFn();
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int GetErrorMessageFn(int errorCode, [MarshalAs(UnmanagedType.BStr)] out string description);
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int GetDeviceInfoFn(
         [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] out string[] deviceTypes,
         [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] out string[] ledCounts);
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int GetLedInfoFn(
         [MarshalAs(UnmanagedType.BStr)] string deviceType, uint index,
         [MarshalAs(UnmanagedType.BStr)] out string name,
         [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] out string[] styles);
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int SetLedColorFn([MarshalAs(UnmanagedType.BStr)] string deviceType, uint index, uint r, uint g, uint b);
 
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     public delegate int SetLedStyleFn([MarshalAs(UnmanagedType.BStr)] string deviceType, uint index, [MarshalAs(UnmanagedType.BStr)] string style);
 
     public required InitializeFn Initialize { get; init; }
@@ -102,10 +102,26 @@ internal sealed class MysticLightSdkNative
                 return null;
             }
 
-            if (!NativeLibrary.TryLoad(path, typeof(MysticLightSdkNative).Assembly,
-                    DllImportSearchPath.UseDllDirectoryForDependencies, out var handle))
+            var archError = CheckArchitecture(path);
+            if (archError is not null)
             {
-                error = $"'{path}' konnte nicht geladen werden (falsche Architektur oder beschädigt?).";
+                error = archError;
+                return null;
+            }
+
+            // Abhängigkeiten im DLL-Ordner UND in System32 suchen: Die SDK-DLL importiert
+            // OLEACC.dll und WINSPOOL.DRV, die keine KnownDLLs sind. Mit nur
+            // UseDllDirectoryForDependencies (LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR) findet Windows sie
+            // nicht und das Laden scheitert mit 0x8007007E.
+            IntPtr handle;
+            try
+            {
+                handle = NativeLibrary.Load(path, typeof(MysticLightSdkNative).Assembly,
+                    DllImportSearchPath.UseDllDirectoryForDependencies | DllImportSearchPath.System32);
+            }
+            catch (Exception ex) when (ex is DllNotFoundException or BadImageFormatException)
+            {
+                error = $"'{path}' konnte nicht geladen werden: {ex.Message}";
                 return null;
             }
 
@@ -130,6 +146,30 @@ internal sealed class MysticLightSdkNative
                 error = $"'{path}' ist keine passende Mystic-Light-SDK-DLL: {ex.Message}";
                 return null;
             }
+        }
+    }
+
+    /// <summary>Liest den Machine-Typ aus dem PE-Kopf, damit eine 32-Bit-DLL in der 64-Bit-App
+    /// eine klare Meldung ergibt statt eines allgemeinen Ladefehlers.</summary>
+    private static string? CheckArchitecture(string path)
+    {
+        try
+        {
+            using var reader = new BinaryReader(File.OpenRead(path));
+            if (reader.ReadUInt16() != 0x5A4D) return $"'{path}' ist keine DLL (MZ-Kopf fehlt).";
+            reader.BaseStream.Position = 0x3C;
+            reader.BaseStream.Position = reader.ReadInt32();
+            if (reader.ReadUInt32() != 0x00004550) return $"'{path}' ist keine DLL (PE-Kopf fehlt).";
+            var machine = reader.ReadUInt16();
+            var expected = Environment.Is64BitProcess ? (ushort)0x8664 : (ushort)0x014C;
+            if (machine == expected) return null;
+            var found = machine switch { 0x8664 => "64-Bit", 0x014C => "32-Bit", _ => $"0x{machine:X4}" };
+            var wanted = Environment.Is64BitProcess ? "64-Bit (MysticLight_SDK_x64.dll)" : "32-Bit (MysticLight_SDK.dll)";
+            return $"'{path}' ist eine {found}-DLL, AetherRGB braucht die {wanted}.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException)
+        {
+            return $"'{path}' konnte nicht gelesen werden: {ex.Message}";
         }
     }
 
