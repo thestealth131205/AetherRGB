@@ -112,8 +112,9 @@ public static class ScreenProfileTemplates
 
     public static ScreenProfile? Get(string id) => All.Select(t => t()).FirstOrDefault(p => p.Id == id);
 
-    /// <summary>Stand der mitgelieferten Vorlagen. 2 = Farbstufen für die Anzeige auf Geräten, Sturm-Abstand.</summary>
-    public const int CurrentVersion = 2;
+    /// <summary>Stand der mitgelieferten Vorlagen. 2 = Farbstufen für die Anzeige auf Geräten, Sturm-Abstand.
+    /// 3 = Leben und Schild als Bild 1:1 über die volle Effekt-Breite, Sturm als Lauflicht von rechts nach links.</summary>
+    public const int CurrentVersion = 3;
 
     /// <summary>Bringt ein aus einer Vorlage entstandenes Profil auf deren aktuellen Stand: fehlende Bereiche kommen
     /// dazu, Bereiche ohne Farbstufen bekommen die der Vorlage, der alte Sturm-„Farbanteil“ wird zum Sturm-Abstand.
@@ -141,6 +142,19 @@ public static class ScreenProfileTemplates
                 existing.Range = t.Range;
                 if (existing.Name == "Sturm (Minimap)") existing.Name = t.Name;
                 changes.Add($"„{existing.Name}“ misst jetzt den Abstand zum Sturm");
+            }
+            // v3: Darstellung der Vorlage übernehmen, solange der Bereich noch die alte Standard-Darstellung hat.
+            if (profile.TemplateVersion < 3 && t.Display is LayerDisplay.Mirror or LayerDisplay.Sweep
+                && existing.Display == LayerDisplay.Fill && existing.Target == RelRect.Full && existing.Rule == t.Rule)
+            {
+                existing.Display = t.Display;
+                existing.Opacity = t.Opacity;
+                if (t.Display == LayerDisplay.Sweep)
+                {
+                    existing.FlashMs = t.FlashMs;
+                    existing.TriggerBelow = t.TriggerBelow;
+                }
+                changes.Add(t.Display == LayerDisplay.Mirror ? $"„{existing.Name}“ als Bild 1:1" : $"„{existing.Name}“ als Lauflicht");
             }
             if (existing.Steps.Count == 0 && t.Steps.Count > 0)
             {
@@ -185,6 +199,8 @@ public static class ScreenProfileTemplates
                 Colors = { HealthGreen }, SmoothingMs = 150,
                 ColorLow = new RgbColor(255, 0, 0), ColorMid = new RgbColor(255, 170, 0), ColorHigh = new RgbColor(0, 255, 40),
                 PulseBelow = 0.25,
+                // Auf der Effekt-Fläche: der Balken aus dem Spiel 1:1 über die volle Breite (unter dem Schild-Band).
+                Display = LayerDisplay.Mirror,
                 // Auf einem Gerät: Füllstand über die LEDs, Farbe nach Stufe.
                 Steps =
                 {
@@ -198,7 +214,8 @@ public static class ScreenProfileTemplates
             {
                 Id = "shield", Name = "Schild", Rule = RegionRule.BarFill, Area = Px(57, 982, 280, 992),
                 Colors = { ShieldBlue }, SmoothingMs = 150,
-                ColorLow = RgbColor.Black, ColorHigh = new RgbColor(0, 140, 255), ValueAsOpacity = true, Opacity = 0.45,
+                ColorLow = RgbColor.Black, ColorHigh = new RgbColor(0, 140, 255), ValueAsOpacity = true, Opacity = 1,
+                Display = LayerDisplay.Mirror,
                 Steps =
                 {
                     new GaugeStep(1.00, new RgbColor(0, 120, 255)),
@@ -212,7 +229,9 @@ public static class ScreenProfileTemplates
                 // pink-rote Sturmgrenze. 1 = kein Sturm auf der Minimap, 0 = mitten im Sturm.
                 Id = "storm", Name = "Sturm-Abstand (Minimap)", Rule = RegionRule.ColorDistance, Area = Px(1733, 24, 1895, 186),
                 Colors = { StormPurple }, FullAt = 0.5, MinShare = 0.03, SmoothingMs = 400, Range = 1.0,
-                ColorHigh = new RgbColor(176, 38, 255), Opacity = 0.9,
+                ColorHigh = new RgbColor(176, 38, 255), Opacity = 1,
+                // Auf der Effekt-Fläche: sobald der Sturm auf der Minimap auftaucht, läuft einmal ein Licht von rechts nach links.
+                Display = LayerDisplay.Sweep, TriggerBelow = 0.999, FlashMs = 900,
                 DeviceFill = DeviceFill.Inverse, BlinkHz = 3,
                 Steps =
                 {

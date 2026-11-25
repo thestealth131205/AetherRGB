@@ -14,7 +14,11 @@ public sealed record RegionResult(
     /// <summary>Zeitpunkt des letzten Blitzes (<see cref="Stopwatch.GetTimestamp"/>), 0 = nie.</summary>
     long LastTrigger,
     /// <summary>HudCheck bestanden bzw. bei anderen Regeln immer true.</summary>
-    bool Passed);
+    bool Passed,
+    /// <summary>Bild des Bereichs (Zeilen von oben, schon gesättigt), nur bei Darstellung <see cref="LayerDisplay.Mirror"/>.</summary>
+    RgbColor[]? Pixels = null,
+    int PixelCols = 0,
+    int PixelRows = 0);
 
 /// <summary>Auswertung eines Bildes nach einem Profil.</summary>
 public sealed record ScreenAnalysis(
@@ -41,6 +45,10 @@ public sealed class ScreenAnalyzer
         public readonly double[] History = new double[3];
         public int HistoryCount;
         public double? LastStable;
+        /// <summary>ColorDistance: nächster Auslöser erlaubt (Farbe war seit dem letzten Auslöser lange genug weg).</summary>
+        public bool Armed = true;
+        /// <summary>ColorDistance: seit wann die Farbe wieder außer Reichweite ist (0 = ist sie nicht).</summary>
+        public long AwaySince;
     }
 
     public ScreenProfile? Profile { get; }
@@ -81,6 +89,7 @@ public sealed class ScreenAnalyzer
             foreach (var region in Profile.Regions.Where(r => r.Enabled && r.Rule != RegionRule.ValueDrop))
             {
                 var result = Measure(image, region, now, dtMs);
+                if (region.IsMirror) result = WithPixels(result, image, region);
                 results[region.Id] = result;
                 if (region.Rule == RegionRule.HudCheck && !result.Passed) hud = false;
             }
@@ -97,6 +106,44 @@ public sealed class ScreenAnalyzer
         }
 
         return new ScreenAnalysis(Profile, average, thumb, ThumbCols, ThumbRows, Profile is null || _hudVisible, results, now);
+    }
+
+    /// <summary>Höchstens so viele Zellen breit/hoch wird das Bild eines Bereichs für die Darstellung als Bild.</summary>
+    public const int MirrorMaxCols = 128, MirrorMaxRows = 32;
+
+    private RegionResult WithPixels(RegionResult result, ScreenImage image, ScreenRegion region)
+    {
+        var (pixels, cols, rows) = RegionPixels(image, region.Area, Saturation);
+        return result with { Pixels = pixels, PixelCols = cols, PixelRows = rows };
+    }
+
+    /// <summary>Bild eines Bereichs: je Zelle der Mittelwert, höchstens <see cref="MirrorMaxCols"/> ×
+    /// <see cref="MirrorMaxRows"/> Zellen, bei kleinen Bereichen 1 Zelle = 1 Pixel des Analysebildes.</summary>
+    public static (RgbColor[] Pixels, int Cols, int Rows) RegionPixels(ScreenImage image, RelRect area, double saturation)
+    {
+        var (x0, y0, x1, y1) = image.ToPixels(area);
+        int w = x1 - x0, h = y1 - y0;
+        int cols = Math.Min(w, MirrorMaxCols), rows = Math.Min(h, MirrorMaxRows);
+        var result = new RgbColor[cols * rows];
+        var px = image.Bgra;
+        for (int ry = 0; ry < rows; ry++)
+        {
+            int ya = y0 + ry * h / rows, yb = Math.Max(ya + 1, y0 + (ry + 1) * h / rows);
+            for (int rx = 0; rx < cols; rx++)
+            {
+                int xa = x0 + rx * w / cols, xb = Math.Max(xa + 1, x0 + (rx + 1) * w / cols);
+                long r = 0, g = 0, b = 0;
+                for (int y = ya; y < yb; y++)
+                {
+                    int i = (y * image.Width + xa) * 4;
+                    for (int x = xa; x < xb; x++, i += 4) { b += px[i]; g += px[i + 1]; r += px[i + 2]; }
+                }
+                long n = (long)(xb - xa) * (yb - ya);
+                result[ry * cols + rx] = new RgbColor((byte)(r / n), (byte)(g / n), (byte)(b / n));
+            }
+        }
+        ColorBoost.Saturate(result, saturation);
+        return (result, cols, rows);
     }
 
     private static RgbColor AverageOf(RgbColor[] cells)
@@ -157,7 +204,25 @@ public sealed class ScreenAnalyzer
             case RegionRule.ColorDistance:
             {
                 double raw = Distance(image, region);
-                return new RegionResult(raw, Smooth(state, raw, region.SmoothingMs, dtMs), avg, 0, true);
+                double value = Smooth(state, raw, region.SmoothingMs, dtMs);
+                // Auslöser fürs Lauflicht: Farbe kommt näher als TriggerBelow (z. B. Sturm taucht auf der Minimap auf).
+                // Erneut erst, nachdem sie mindestens 1 s lang wieder weiter weg war — ein einzelnes Bild, in dem der
+                // Sturm nicht erkannt wird, löst so kein zweites Lauflicht aus.
+                if (raw >= region.TriggerBelow)
+                {
+                    if (state.AwaySince == 0) state.AwaySince = now;
+                    if (now - state.AwaySince >= Stopwatch.Frequency) state.Armed = true;
+                }
+                else
+                {
+                    state.AwaySince = 0;
+                    if (value < region.TriggerBelow && state.Armed && _hudVisible)
+                    {
+                        state.LastTrigger = now;
+                        state.Armed = false;
+                    }
+                }
+                return new RegionResult(raw, value, avg, state.LastTrigger, true);
             }
 
             default:

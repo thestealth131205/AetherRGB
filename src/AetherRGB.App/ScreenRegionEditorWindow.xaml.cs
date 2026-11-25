@@ -855,23 +855,52 @@ public partial class ScreenRegionEditorWindow : Window
             case RegionRule.ColorFlash:
             case RegionRule.ValueDrop:
                 ColorField("Blitzfarbe", () => region.ColorHigh, c => { region.ColorHigh = c; MarkDirty(); });
-                SliderField("Blitzdauer (ms)", 100, 2000, region.FlashMs, "0", v => { region.FlashMs = (int)Math.Round(v / 10) * 10; MarkDirty(); });
+                if (region.Display != LayerDisplay.Sweep) SliderField("Blitzdauer (ms)", 100, 2000, region.FlashMs, "0", v => { region.FlashMs = (int)Math.Round(v / 10) * 10; MarkDirty(); });
                 break;
         }
         SliderField("Deckkraft", 0, 1, region.Opacity, "P0", v => { region.Opacity = v; MarkDirty(); });
-        if (region.Rule is RegionRule.BarFill or RegionRule.ColorShare or RegionRule.ColorDistance)
+        var displays = DisplaysFor(region.Rule);
+        if (displays.Length > 1)
         {
             var display = new ComboBox { Margin = new Thickness(0, 2, 0, 8) };
-            display.Items.Add("Ganze Zielfläche einfärben");
-            display.Items.Add("Als Balken über die Zielfläche (links → rechts)");
-            display.SelectedIndex = (int)region.Display;
-            display.SelectionChanged += (_, _) => { region.Display = (LayerDisplay)display.SelectedIndex; MarkDirty(); };
+            foreach (var d in displays) display.Items.Add(d.Name);
+            display.SelectedIndex = Math.Max(0, Array.FindIndex(displays, d => d.Display == region.Display));
+            display.SelectionChanged += (_, _) =>
+            {
+                region.Display = displays[display.SelectedIndex].Display;
+                if (region.Display == LayerDisplay.Sweep && region.FlashMs < 600) region.FlashMs = 900;
+                BuildRegionPanel();
+                MarkDirty();
+            };
             Label("Darstellung");
             RegionPanel.Children.Add(display);
+            if (region.IsMirror)
+                Label("Zeigt den Bereich so, wie er im Spiel aussieht, nur vergrößert. Bei Zielfläche „ganze Fläche“ (0/0/100/100) " +
+                      "bekommt jeder solche Bereich die volle Breite und ein eigenes Band, untereinander wie auf dem Monitor.");
+            if (region.Display == LayerDisplay.Sweep && region.CanSweep)
+            {
+                if (region.Rule == RegionRule.ColorDistance)
+                    SliderField("Lauflicht, sobald Abstand unter", 0.05, 0.999, region.TriggerBelow, "P0", v => { region.TriggerBelow = Math.Round(v, 3); MarkDirty(); });
+                SliderField("Dauer des Lauflichts (ms)", 300, 3000, region.FlashMs, "0", v => { region.FlashMs = (int)Math.Round(v / 10) * 10; MarkDirty(); });
+                Label("Die Zielfläche leuchtet einmal von rechts nach links auf. Bei „Abstand zur Farbe“ erneut erst, nachdem die Farbe wieder weiter weg war.");
+            }
         }
         RectFields("Zielfläche auf der Effekt-Fläche (%)", () => region.Target, v => { region.Target = v; MarkDirty(); });
 
         if (region.CanShowOnDevice) BuildDeviceSection(region);
+    }
+
+    /// <summary>Darstellungen, die zu einer Regel passen (die erste ist der Standard).</summary>
+    private static (LayerDisplay Display, string Name)[] DisplaysFor(RegionRule rule)
+    {
+        var list = new List<(LayerDisplay, string)> { (LayerDisplay.Fill, "Ganze Zielfläche einfärben") };
+        if (rule is RegionRule.BarFill or RegionRule.ColorShare or RegionRule.ColorDistance)
+            list.Add((LayerDisplay.Bar, "Als Balken über die Zielfläche (links → rechts)"));
+        if (rule is not (RegionRule.ValueDrop or RegionRule.HudCheck))
+            list.Add((LayerDisplay.Mirror, "Bild des Bereichs 1:1, vergrößert auf die Zielfläche"));
+        if (rule is RegionRule.ColorFlash or RegionRule.ValueDrop or RegionRule.ColorDistance)
+            list.Add((LayerDisplay.Sweep, "Lauflicht von rechts nach links"));
+        return list.ToArray();
     }
 
     // ===================== Anzeige auf zugewiesenen Geräten =====================

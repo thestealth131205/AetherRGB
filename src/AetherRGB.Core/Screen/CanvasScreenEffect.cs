@@ -82,13 +82,72 @@ public sealed class CanvasScreenEffect : IDeviceAwareCanvasEffect
         var color = profile.BaseColor;
         foreach (var region in profile.Regions)
         {
-            if (!region.Enabled || !region.HasLayer || !region.Target.Contains(u, v)) continue;
+            if (!region.Enabled || !region.HasLayer) continue;
+            var target = TargetOf(profile, region);
+            if (!target.Contains(u, v)) continue;
             if (!analysis.Results.TryGetValue(region.Id, out var r)) continue;
-            var (layer, alpha) = Layer(region, r, u, elapsed, now);
+            double lu = target.W <= 0 ? 0 : (u - target.X) / target.W, lv = target.H <= 0 ? 0 : (v - target.Y) / target.H;
+            var (layer, alpha) = region.IsMirror ? (SamplePixels(r, lu, lv), r.Pixels is null ? 0 : 1)
+                : region.Display == LayerDisplay.Sweep && region.CanSweep ? (SweepColor(region, r), SweepLevel(region, r, lu, now))
+                : Layer(region, r, u, elapsed, now);
             if (alpha > 0) color = RgbColor.Lerp(color, layer, alpha * region.Opacity);
         }
         return color;
     }
+
+    /// <summary>Zielfläche eines Bereichs. Als Bild dargestellte Bereiche mit Zielfläche „ganze Fläche“ teilen sich die
+    /// Fläche: jeder bekommt die volle Breite und ein gleich hohes Band, sortiert nach ihrer Lage auf dem Monitor
+    /// (oben liegender Schildbalken oben, Lebensbalken darunter).</summary>
+    public static RelRect TargetOf(ScreenProfile profile, ScreenRegion region)
+    {
+        if (!region.IsMirror || region.Target != RelRect.Full) return region.Target;
+        int index = 0, count = 0;
+        foreach (var other in profile.Regions)
+        {
+            if (!other.Enabled || !other.IsMirror || other.Target != RelRect.Full) continue;
+            count++;
+            if (other != region && Before(other, region)) index++;
+        }
+        if (count <= 1) return RelRect.Full;
+        return new RelRect(0, (double)index / count, 1, 1.0 / count);
+    }
+
+    private static bool Before(ScreenRegion a, ScreenRegion b) =>
+        a.Area.Y < b.Area.Y - 1e-9 || (Math.Abs(a.Area.Y - b.Area.Y) <= 1e-9 && a.Area.X < b.Area.X);
+
+    /// <summary>Bild des Bereichs an der Stelle (lu, lv) der Zielfläche, weich zwischen den Zellen überblendet.</summary>
+    public static RgbColor SamplePixels(RegionResult r, double lu, double lv)
+    {
+        if (r.Pixels is not { } px || r.PixelCols <= 0 || r.PixelRows <= 0) return RgbColor.Black;
+        int cols = r.PixelCols, rows = r.PixelRows;
+        double fx = Math.Clamp(lu * cols - 0.5, 0, cols - 1), fy = Math.Clamp(lv * rows - 0.5, 0, rows - 1);
+        int x0 = (int)fx, y0 = (int)fy, x1 = Math.Min(x0 + 1, cols - 1), y1 = Math.Min(y0 + 1, rows - 1);
+        var top = RgbColor.Lerp(px[y0 * cols + x0], px[y0 * cols + x1], fx - x0);
+        var bottom = RgbColor.Lerp(px[y1 * cols + x0], px[y1 * cols + x1], fx - x0);
+        return RgbColor.Lerp(top, bottom, fy - y0);
+    }
+
+    /// <summary>Breite des hellen Kopfes und Länge des Nachleuchtens des Lauflichts (Anteil der Zielfläche).</summary>
+    private const double SweepHead = 0.08, SweepTail = 0.55;
+
+    /// <summary>Lauflicht von rechts nach links: Der Kopf wandert in <see cref="ScreenRegion.FlashMs"/> über die
+    /// Zielfläche (lu 1 → 0) und zieht ein abklingendes Nachleuchten hinter sich her.</summary>
+    public static double SweepLevel(ScreenRegion region, RegionResult r, double lu, long now)
+    {
+        if (r.LastTrigger == 0) return 0;
+        double ms = (now - r.LastTrigger) * 1000.0 / Stopwatch.Frequency;
+        if (ms < 0 || ms >= region.FlashMs) return 0;
+        double t = ms / region.FlashMs;
+        // Kopf startet rechts außerhalb und verlässt die Fläche links, damit Anfang und Ende ganz zu sehen sind.
+        double head = 1 + SweepHead - t * (1 + SweepHead + SweepTail);
+        double d = lu - head;
+        double level = d < 0 ? 1 - -d / SweepHead : 1 - d / SweepTail;
+        return Math.Clamp(level, 0, 1);
+    }
+
+    /// <summary>Farbe des Lauflichts: bei Abstand zur Farbe die Farbstufe zum aktuellen Wert, sonst die Blitzfarbe.</summary>
+    private static RgbColor SweepColor(ScreenRegion region, RegionResult r) =>
+        region.Rule == RegionRule.ColorDistance ? ScreenGauge.StepFor(region, r.Value).Color : region.ColorHigh;
 
     private static (RgbColor Color, double Alpha) Layer(ScreenRegion region, RegionResult r, double u, TimeSpan elapsed, long now)
     {

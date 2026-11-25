@@ -59,6 +59,14 @@ public enum LayerDisplay
     Fill,
     /// <summary>Als Balken über den Zielbereich (von links nach rechts) — z. B. das Leben auf einem Strip.</summary>
     Bar,
+    /// <summary>Das Bild des Bereichs 1:1, nur vergrößert auf die Zielfläche — der Lebensbalken aus dem Spiel erscheint
+    /// so, wie er ist, über die volle Effekt-Breite. Bereiche mit Zielfläche „ganze Fläche“ werden dabei automatisch
+    /// untereinander gestapelt (in der Reihenfolge, in der sie auf dem Monitor liegen).</summary>
+    Mirror,
+    /// <summary>Lauflicht: bei einem Auslöser leuchtet die Zielfläche einmal von rechts nach links auf (Blitze, und bei
+    /// „Abstand zur Farbe“, sobald die Farbe näher als <see cref="ScreenRegion.TriggerBelow"/> kommt — z. B. Sturm taucht
+    /// auf der Minimap auf).</summary>
+    Sweep,
 }
 
 /// <summary>Was die Lichter zeigen, solange das HUD nicht zu sehen ist (Menü, Lobby, Zuschauen).</summary>
@@ -151,6 +159,18 @@ public sealed class ScreenRegion
     /// <summary>ColorDistance: so weit (relativ zur halben Breite/Höhe des Bereichs) zählt eine Farbe noch als „nah“;
     /// weiter weg ergibt Wert 1.</summary>
     public double Range { get; set; } = 1.0;
+
+    /// <summary>ColorDistance mit Darstellung <see cref="LayerDisplay.Sweep"/>: Auslöser, sobald der Abstand unter diesen
+    /// Wert fällt (0,999 = die Farbe taucht überhaupt im Bereich auf). Erneut erst, nachdem er wieder darüber lag.</summary>
+    public double TriggerBelow { get; set; } = 0.999;
+
+    /// <summary>Darstellung als Bild des Bereichs: Die Analyse liefert dafür dessen Pixel mit (<see cref="RegionResult.Pixels"/>).</summary>
+    [JsonIgnore]
+    public bool IsMirror => Display == LayerDisplay.Mirror && Rule is not (RegionRule.HudCheck or RegionRule.ValueDrop);
+
+    /// <summary>Kann die Regel ein Lauflicht auslösen?</summary>
+    [JsonIgnore]
+    public bool CanSweep => Rule is RegionRule.ColorFlash or RegionRule.ValueDrop or RegionRule.ColorDistance;
 
     /// <summary>Kann auf einem Gerät angezeigt werden (HudCheck nicht).</summary>
     [JsonIgnore]
@@ -253,6 +273,8 @@ public static class ScreenProfileSerializer
             r.BlinkHz = Math.Clamp(double.IsFinite(r.BlinkHz) ? r.BlinkHz : 2.5, 0.2, 10);
             r.Range = Math.Clamp(double.IsFinite(r.Range) ? r.Range : 1, 0.05, 1.5);
             if (!Enum.IsDefined(r.DeviceFill)) r.DeviceFill = DeviceFill.Value;
+            if (!Enum.IsDefined(r.Display)) r.Display = LayerDisplay.Fill;
+            r.TriggerBelow = Math.Clamp(double.IsFinite(r.TriggerBelow) ? r.TriggerBelow : 0.999, 0.01, 0.999);
         }
         foreach (var r in profile.Regions) r.Sources.RemoveAll(s => s == r.Id || !ids.Contains(s));
     }
