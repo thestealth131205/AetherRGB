@@ -20,6 +20,9 @@ namespace AetherRGB.Api;
 ///   GET  /api/health                                  -> {"status":"ok"}
 ///   GET  /api/sensors                                 -> alle Systemwerte (Windows, NVIDIA, AIDA64), wie im Sensor-Panel
 ///   GET  /api/sensors/{id}                            -> ein Wert, z. B. /api/sensors/win/cpu/load
+///   GET  /api/profiles                                -> alle Profile, mit "active"
+///   POST /api/profiles/{idOderName}/activate          -> Profil wechseln (Name ohne Groß-/Kleinschreibung)
+///   POST /api/profiles/next, /api/profiles/previous   -> zum nächsten/vorherigen Profil
 /// </summary>
 public sealed class LocalApiHost
 {
@@ -27,10 +30,20 @@ public sealed class LocalApiHost
     private readonly int _port;
     private WebApplication? _app;
 
+    /// <summary>Profilsteuerung der App — ohne (null) antworten die Profil-Endpunkte mit 503.</summary>
+    public AetherRGB.Core.Layout.ILightingProfileControl? Profiles { get; init; }
+
     public LocalApiHost(DeviceRegistry registry, int port)
     {
         _registry = registry;
         _port = port;
+    }
+
+    private async Task<IResult> StepProfile(int direction)
+    {
+        if (Profiles is null) return Results.StatusCode(503);
+        var name = await Profiles.StepAsync(direction);
+        return name is null ? Results.Conflict(new { error = "Es gibt nur ein Profil." }) : Results.Json(new { active = name });
     }
 
     public async Task StartAsync()
@@ -58,6 +71,22 @@ public sealed class LocalApiHost
             var hub = AetherRGB.Core.Sensors.SensorHub.Shared;
             hub.Demand();
             return hub.Get(id) is { } r ? Results.Json(SensorDto(r)) : Results.NotFound(new { error = $"Sensor '{id}' nicht gefunden (Liste: GET /api/sensors)." });
+        });
+
+        app.MapGet("/api/profiles", () => Profiles is null
+            ? Results.StatusCode(503)
+            : Results.Json(Profiles.ListProfiles().Select(p => new { id = p.Id, name = p.Name, active = p.Active, summary = p.Summary })));
+
+        app.MapPost("/api/profiles/next", async () => await StepProfile(+1));
+        app.MapPost("/api/profiles/previous", async () => await StepProfile(-1));
+
+        app.MapPost("/api/profiles/{idOrName}/activate", async (string idOrName) =>
+        {
+            if (Profiles is null) return Results.StatusCode(503);
+            var name = await Profiles.ActivateAsync(idOrName);
+            return name is null
+                ? Results.NotFound(new { error = $"Profil '{idOrName}' nicht gefunden (Liste: GET /api/profiles)." })
+                : Results.Json(new { active = name });
         });
 
         app.MapGet("/api/devices", async () =>

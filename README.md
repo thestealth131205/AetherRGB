@@ -183,6 +183,17 @@ Ebenen, Animations-Vorlagen und Keyframes. Die platzierten Geräte liegen zur Or
     Zwei Vorlagen für 1024 × 600: „Systemübersicht“ und „Animation mit Werten“.
   - Alle Werte auch über die lokale API: `GET /api/sensors` und `GET /api/sensors/{id}`.
 
+- **Profile** (Knopf „🗂 Profil ▾“ oben auf der Effekte-Seite, auch im Infobereich-Menü): ein Profil speichert
+  alle Effekt-Fenster mit Effekten, Farben, Tempo, platzierten Geräten (Position, Größe, Drehung, Helligkeit),
+  Spiel-Anzeige-Zuweisungen und synchroner Gruppe. Die LED-Anordnungen der Geräte gelten in allen Profilen.
+  - Wechseln per Menü, Doppelklick in der Profilverwaltung oder **systemweitem Hotkey** (z. B. Strg+Alt+1; wirkt
+    auch im Spiel und wenn AetherRGB im Infobereich liegt). Dazu optional Hotkeys „Nächstes“/„Vorheriges Profil“.
+    Erlaubt sind Kombinationen mit Strg, Alt oder Win, F13–F24 auch allein.
+  - Beim Wechsel wird der jetzige Stand ins bisherige Profil übernommen (abschaltbar — dann ändert sich ein Profil
+    nur über „Mit jetzigem Stand überschreiben“). Beim ersten Start werden die bisherigen Fenster zum Profil „Standard“.
+  - Gespeichert in `%APPDATA%\AetherRGB\profiles.json`. Lokale API: `GET /api/profiles`,
+    `POST /api/profiles/{id oder Name}/activate`, `POST /api/profiles/next`, `POST /api/profiles/previous`.
+
 ## Architektur
 
 ```

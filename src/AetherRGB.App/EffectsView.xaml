@@ -24,6 +24,10 @@
                 <!-- Dropdown: welche Effekt-Fenster synchron laufen -->
                 <Button x:Name="SyncButton" DockPanel.Dock="Right" Style="{StaticResource TabButton}" Content="⇄  Synchron ▾"
                         ToolTip="Effekt-Fenster wählen, die synchron miteinander laufen sollen" Click="OnSyncButtonClick" />
+                <!-- Profile: kompletter Stand aller Effekt-Fenster, per Hotkey umschaltbar -->
+                <Button x:Name="ProfileButton" DockPanel.Dock="Right" Style="{StaticResource TabButton}" Content="🗂  Profil ▾"
+                        ToolTip="Profil wechseln, speichern oder verwalten — ein Profil merkt sich alle Effekt-Fenster mit Effekten und Geräten"
+                        Click="OnProfileButtonClick" />
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                     <StackPanel x:Name="SceneTabs" Orientation="Horizontal" />
                 </ScrollViewer>

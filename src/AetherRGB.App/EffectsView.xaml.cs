@@ -39,6 +39,7 @@ public partial class EffectsView : UserControl
     private SceneCollection _scenes = new();
     private LedShapeStore _shapes = new();
     private CustomEffectStore? _customEffects;
+    private LightingProfileStore? _profiles;
     private EffectEditorWindow? _editor;
     private EffectScene? _scene;
     private readonly List<DeviceVisual> _visuals = new();
@@ -90,16 +91,20 @@ public partial class EffectsView : UserControl
         };
     }
 
-    public void Initialize(CanvasEffectEngine engine, SceneCollection scenes, LedShapeStore shapes, CustomEffectStore customEffects)
+    public void Initialize(CanvasEffectEngine engine, SceneCollection scenes, LedShapeStore shapes, CustomEffectStore customEffects,
+        LightingProfileStore profiles)
     {
         _engine = engine;
         _scenes = scenes;
+        _profiles = profiles;
         _shapes = shapes;
         _customEffects = customEffects;
         _scenes.AlignSynced(engine.Elapsed);
         BuildTabs();
         ShowScene(_scenes.Scenes.FirstOrDefault(s => s.Id == _scenes.ActiveSceneId) ?? _scenes.Scenes[0]);
         WarnMissingEffects();
+        RefreshProfileButton();
+        ProfilesChanged += RefreshProfileButton;
     }
 
     /// <summary>Neue Geräteliste nach "Geräte neu suchen" — aktualisiert die Liste rechts, LED-Anzahlen und
@@ -120,6 +125,14 @@ public partial class EffectsView : UserControl
         _onlineKeys.Clear();
         foreach (var zone in _available) _onlineKeys.Add(zone.Key);
 
+        UpdatePlacedItems();
+        RefreshDeviceList();
+        if (_scene is not null) ShowScene(_scene);
+    }
+
+    /// <summary>LED-Anzahl und Namen platzierter Geräte an die zuletzt gefundenen anpassen.</summary>
+    private void UpdatePlacedItems()
+    {
         foreach (var scene in _scenes.Scenes)
             foreach (var item in scene.Items)
                 if (_available.FirstOrDefault(a => a.DeviceId == item.DeviceId && a.ZoneIndex == item.ZoneIndex) is { } zone)
@@ -127,9 +140,122 @@ public partial class EffectsView : UserControl
                     item.LedCount = zone.LedCount;
                     item.DisplayName = zone.DisplayName;
                 }
+    }
 
+    // ===================== Profile =====================
+
+    /// <summary>Die laufenden Effekt-Fenster (für „Mit jetzigem Stand überschreiben“ in der Profilverwaltung).</summary>
+    public SceneCollection Scenes => _scenes;
+
+    /// <summary>Nach jedem Wechsel, Anlegen oder Umbenennen — das Hauptfenster baut Tray-Menü und Hotkeys neu auf.</summary>
+    public event Action? ProfilesChanged;
+
+    /// <summary>Vom Hauptfenster gesetzt: öffnet die Profilverwaltung, optional mit diesem Profil ausgewählt.</summary>
+    public Action<LightingProfile?>? OpenProfileManager { get; set; }
+
+    /// <summary>Wechselt zu <paramref name="profile"/>: der jetzige Stand wandert (falls eingestellt) ins bisher
+    /// aktive Profil, dann werden alle Effekt-Fenster ausgetauscht. <paramref name="via"/> steht im Log
+    /// (z. B. „Hotkey Strg+Alt+1“).</summary>
+    public void ActivateProfile(LightingProfile profile, string via)
+    {
+        if (_profiles is null || _engine is null) return;
+        _saveDebounce.Stop();
+        _editor?.BeforeScenesReplaced();
+        _profiles.Activate(profile, _scenes, _engine.Elapsed);
+        UpdatePlacedItems();
+        ShowScene(_scenes.Scenes.FirstOrDefault(s => s.Id == _scenes.ActiveSceneId) ?? _scenes.Scenes[0]);
         RefreshDeviceList();
-        if (_scene is not null) ShowScene(_scene);
+        WarnMissingEffects();
+        _editor?.AfterScenesReplaced();
+        SaveScenes();
+        SaveProfiles();
+        LogMessage?.Invoke($"Profil „{profile.Name}“ aktiv ({via}) — {profile.Summary}.", LogLevel.Info);
+        ProfilesChanged?.Invoke();
+    }
+
+    public void SaveProfiles()
+    {
+        try { _profiles?.Save(); }
+        catch (Exception ex) { LogMessage?.Invoke("Profile konnten nicht gespeichert werden: " + ExceptionText.Describe(ex), LogLevel.Error); }
+    }
+
+    /// <summary>Jetzigen Stand als neues Profil anlegen und gleich aktivieren — danach gehören weitere Änderungen
+    /// zu ihm, das bisherige Profil behält seinen Stand.</summary>
+    public LightingProfile? SaveAsNewProfile()
+    {
+        if (_profiles is null || _engine is null) return null;
+        if (_profiles.RememberChanges && _profiles.Active is { } previous) _profiles.Capture(previous, _scenes);
+        var profile = _profiles.CreateFromCurrent(_profiles.UniqueName("Profil"), _scenes);
+        _profiles.ActiveProfileId = profile.Id;
+        SaveProfiles();
+        LogMessage?.Invoke($"Profil „{profile.Name}“ aus dem jetzigen Stand angelegt — {profile.Summary}.", LogLevel.Info);
+        ProfilesChanged?.Invoke();
+        return profile;
+    }
+
+    /// <summary>Aktives Profil mit dem jetzigen Stand überschreiben.</summary>
+    public void SaveToActiveProfile()
+    {
+        if (_profiles?.Active is not { } active) return;
+        _profiles.Capture(active, _scenes);
+        SaveProfiles();
+        LogMessage?.Invoke($"Profil „{active.Name}“ mit dem jetzigen Stand gespeichert — {active.Summary}.", LogLevel.Info);
+        ProfilesChanged?.Invoke();
+    }
+
+    /// <summary>Profilverwaltung hat Namen, Hotkeys oder Reihenfolge geändert: speichern und alle benachrichtigen.</summary>
+    public void NotifyProfilesChanged()
+    {
+        SaveProfiles();
+        ProfilesChanged?.Invoke();
+    }
+
+    /// <summary>Profilverwaltung hat etwas geändert (Name, Hotkey, Reihenfolge) — Knopf neu beschriften.</summary>
+    public void RefreshProfileButton()
+    {
+        var name = _profiles?.Active?.Name;
+        ProfileButton.Content = name is null ? "🗂  Profil ▾" : $"🗂  {name} ▾";
+    }
+
+    private void OnProfileButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (_profiles is null) return;
+        var menu = new ContextMenu { PlacementTarget = ProfileButton, Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom };
+        menu.Items.Add(new MenuItem { Header = "Profil wechseln:", IsEnabled = false });
+        foreach (var profile in _profiles.Profiles)
+        {
+            bool active = profile.Id == _profiles.ActiveProfileId;
+            var key = GlobalHotkeys.Format(profile.Hotkey);
+            var entry = new MenuItem
+            {
+                Header = (active ? "●  " : "     ") + profile.Name + (key.Length > 0 ? $"     [{key}]" : ""),
+                FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal,
+                ToolTip = profile.Summary
+            };
+            entry.Click += (_, _) => ActivateProfile(profile, "Auswahl");
+            menu.Items.Add(entry);
+        }
+        menu.Items.Add(new Separator());
+
+        var saveNew = new MenuItem { Header = "＋  Jetzigen Stand als neues Profil speichern…" };
+        saveNew.Click += (_, _) => { if (SaveAsNewProfile() is { } p) OpenProfileManager?.Invoke(p); };
+        menu.Items.Add(saveNew);
+
+        var overwrite = new MenuItem
+        {
+            Header = $"💾  „{_profiles.Active?.Name}“ mit jetzigem Stand überschreiben",
+            IsEnabled = _profiles.Active is not null,
+            ToolTip = _profiles.RememberChanges
+                ? "Passiert beim Wechseln ohnehin automatisch — hiermit sofort"
+                : "Änderungen werden beim Wechseln nicht automatisch übernommen (Profilverwaltung)"
+        };
+        overwrite.Click += (_, _) => SaveToActiveProfile();
+        menu.Items.Add(overwrite);
+
+        var manage = new MenuItem { Header = "⚙  Profile und Hotkeys verwalten…" };
+        manage.Click += (_, _) => OpenProfileManager?.Invoke(null);
+        menu.Items.Add(manage);
+        menu.IsOpen = true;
     }
 
     // ===================== Effekt-Fenster (Tabs) =====================

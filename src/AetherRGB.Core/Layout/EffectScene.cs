@@ -241,6 +241,22 @@ public sealed class SceneCollection
         return synced.Count;
     }
 
+    /// <summary>Tiefe Kopie aller Fenster (über dasselbe JSON wie scenes.json) — für Profile. Laufzeitzustand wie
+    /// Effektuhr und Live-Vorschau des Editors wird nicht mitkopiert.</summary>
+    public List<EffectScene> CloneScenes() => CloneScenes(Scenes);
+
+    public static List<EffectScene> CloneScenes(IEnumerable<EffectScene> scenes) =>
+        JsonSerializer.Deserialize<List<EffectScene>>(JsonSerializer.Serialize(scenes.ToList(), JsonOptions), JsonOptions) ?? new();
+
+    /// <summary>Ersetzt alle Fenster auf einmal (Profilwechsel). Die Liste wird als Ganzes ausgetauscht, nicht
+    /// verändert — der Engine-Thread liest so immer entweder den alten oder den neuen Stand.</summary>
+    public void ReplaceScenes(List<EffectScene> scenes, string? activeSceneId)
+    {
+        if (scenes.Count == 0) scenes.Add(new EffectScene { Name = "Effekt 1" });
+        Scenes = scenes;
+        ActiveSceneId = scenes.Any(s => s.Id == activeSceneId) ? activeSceneId : scenes[0].Id;
+    }
+
     public static SceneCollection LoadOrCreateDefault(string? path = null)
     {
         path ??= DefaultPath;

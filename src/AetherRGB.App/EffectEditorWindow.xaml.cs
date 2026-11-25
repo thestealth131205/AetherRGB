@@ -897,6 +897,27 @@ public partial class EffectEditorWindow : Window
         if (LiveCheck.IsChecked == true) StartLive(); else StopLive();
     }
 
+    private bool _liveBeforeSwitch;
+
+    /// <summary>Profilwechsel steht an: die Live-Vorschau vom alten Fenster lösen (das Objekt verschwindet gleich).</summary>
+    public void BeforeScenesReplaced()
+    {
+        _liveBeforeSwitch = LiveCheck.IsChecked == true;
+        StopLive();
+    }
+
+    /// <summary>Profilwechsel fertig: Fensterauswahl auf die neuen Effekt-Fenster setzen und „Live auf LEDs“
+    /// dort fortsetzen, falls es an war.</summary>
+    public void AfterScenesReplaced()
+    {
+        _suppress = true;
+        SceneCombo.ItemsSource = _scenes.Scenes;
+        SceneCombo.SelectedItem = _scenes.Scenes.FirstOrDefault(s => s.Id == _scenes.ActiveSceneId) ?? _scenes.Scenes.FirstOrDefault();
+        _suppress = false;
+        RefreshDeviceOverlay();
+        if (_liveBeforeSwitch) StartLive();
+    }
+
     private void StartLive()
     {
         if (SceneCombo.SelectedItem is not EffectScene scene) return;

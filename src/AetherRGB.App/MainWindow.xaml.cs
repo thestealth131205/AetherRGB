@@ -103,13 +103,15 @@ public partial class MainWindow : Window
         InitializeScreenSync();
         InitializeSensorPanels();
 
+        InitializeProfiles();
         EffectsPanel.LogMessage += Log;
         EffectsPanel.AddWledDevicesAsync = AddWledDevicesAsync;
         EffectsPanel.OpenScreenSync = OpenScreenEditor;
-        EffectsPanel.Initialize(_engine, _scenes, _shapes, _customEffects);
+        EffectsPanel.Initialize(_engine, _scenes, _shapes, _customEffects, _profiles);
 
         LoadSettingsIntoUi();
         InitializeTrayIcon();
+        StartProfiles();
         ChromaHub.Shared.Log += (level, msg) => Log("[Chroma] " + msg, level);
         ApplyChroma();
         Closing += OnWindowClosing;
@@ -301,7 +303,7 @@ public partial class MainWindow : Window
         _ = _api?.StopAsync();
         if (_config.LocalApi.Enabled)
         {
-            _api = new LocalApiHost(_registry, _config.LocalApi.Port);
+            _api = new LocalApiHost(_registry, _config.LocalApi.Port) { Profiles = _profileControl };
             _ = _api.StartAsync().ContinueWith(t =>
             {
                 if (t.Exception is not null)
@@ -1212,6 +1214,14 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _hotkeys?.Dispose();
+        // Beim Beenden den jetzigen Stand ins aktive Profil schreiben — sonst zeigt die Profilverwaltung bis zum
+        // nächsten Wechsel den alten Stand an.
+        if (_profiles is { RememberChanges: true, Active: { } activeProfile })
+        {
+            try { _profiles.Capture(activeProfile, _scenes); _profiles.Save(); }
+            catch { /* beim Beenden nicht mehr meldbar; scenes.json hat den Stand ohnehin */ }
+        }
         _customEffects.Dispose();
         _engine.Dispose();
         _screenStatusTimer.Stop();

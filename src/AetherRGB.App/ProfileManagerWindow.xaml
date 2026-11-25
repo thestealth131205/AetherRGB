@@ -1,0 +1,100 @@
+<Window x:Class="AetherRGB.App.ProfileManagerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AetherRGB — Profile" Width="860" Height="600" MinWidth="720" MinHeight="480"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource BrushBackground}" Foreground="{StaticResource BrushText}">
+    <Grid Margin="20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,14">
+            <TextBlock Text="Profile" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Ein Profil merkt sich alle Effekt-Fenster: Effekte, Farben, Tempo, platzierte Geräte mit Position und Helligkeit, Spiel-Anzeigen und die synchrone Gruppe. Die LED-Anordnungen der Geräte gelten in allen Profilen. Hotkeys wirken systemweit — auch im Spiel und wenn AetherRGB im Infobereich liegt." />
+        </StackPanel>
+
+        <!-- Liste -->
+        <DockPanel Grid.Row="1" Grid.Column="0" Margin="0,0,20,0">
+            <Button DockPanel.Dock="Top" Content="＋  Neues Profil aus jetzigem Stand" Style="{StaticResource PrimaryButton}"
+                    Margin="0,0,0,10" Click="OnNewClick"
+                    ToolTip="Speichert alle Effekt-Fenster, wie sie gerade sind, als neues Profil und aktiviert es" />
+            <ListBox x:Name="ProfileList" Style="{StaticResource DeviceListBox}" SelectionChanged="OnSelectionChanged"
+                     MouseDoubleClick="OnListDoubleClick" />
+        </DockPanel>
+
+        <!-- Details -->
+        <ScrollViewer Grid.Row="1" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="DetailPanel">
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Name" Style="{StaticResource MutedText}" />
+                        <TextBox x:Name="NameBox" Margin="0,4,0,12" LostFocus="OnNameCommit" KeyDown="OnNameKeyDown" />
+
+                        <TextBlock Text="Hotkey (Feld anklicken, dann Tasten drücken)" Style="{StaticResource MutedText}" />
+                        <Grid Margin="0,4,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="HotkeyBox" Grid.Column="0" IsReadOnly="True" IsReadOnlyCaretVisible="False" Margin="0,0,8,0" />
+                            <Button Grid.Column="1" Content="Entfernen" Click="OnClearHotkeyClick" />
+                        </Grid>
+                        <TextBlock x:Name="HotkeyStatus" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,12"
+                                   Text="Mit Strg, Alt oder Win — z. B. Strg+Alt+1. F13–F24 gehen auch allein." />
+
+                        <TextBlock x:Name="InfoText" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,12" />
+
+                        <WrapPanel>
+                            <Button x:Name="ActivateButton" Content="▶  Aktivieren" Style="{StaticResource PrimaryButton}" Margin="0,0,8,8" Click="OnActivateClick" />
+                            <Button x:Name="OverwriteButton" Content="💾  Mit jetzigem Stand überschreiben" Margin="0,0,8,8" Click="OnOverwriteClick"
+                                    ToolTip="Ersetzt dieses Profil durch die Effekt-Fenster, wie sie gerade laufen" />
+                            <Button Content="⧉  Duplizieren" Margin="0,0,8,8" Click="OnDuplicateClick" />
+                            <Button Content="▲" Margin="0,0,4,8" Click="OnMoveUpClick" ToolTip="Nach oben (Reihenfolge für „Nächstes Profil“)" />
+                            <Button Content="▼" Margin="0,0,8,8" Click="OnMoveDownClick" ToolTip="Nach unten" />
+                            <Button x:Name="DeleteButton" Content="🗑  Löschen" Margin="0,0,8,8" Click="OnDeleteClick" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Für alle Profile" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <TextBlock Text="Hotkey „Nächstes Profil“" Style="{StaticResource MutedText}" />
+                        <Grid Margin="0,4,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="NextHotkeyBox" Grid.Column="0" IsReadOnly="True" IsReadOnlyCaretVisible="False" Margin="0,0,8,0" />
+                            <Button Grid.Column="1" Content="Entfernen" Click="OnClearNextClick" />
+                        </Grid>
+                        <TextBlock Text="Hotkey „Vorheriges Profil“" Style="{StaticResource MutedText}" />
+                        <Grid Margin="0,4,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="PreviousHotkeyBox" Grid.Column="0" IsReadOnly="True" IsReadOnlyCaretVisible="False" Margin="0,0,8,0" />
+                            <Button Grid.Column="1" Content="Entfernen" Click="OnClearPreviousClick" />
+                        </Grid>
+                        <TextBlock x:Name="GlobalHotkeyStatus" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                        <CheckBox x:Name="RememberCheck" Content="Änderungen beim Wechseln ins bisherige Profil übernehmen"
+                                  Checked="OnRememberChanged" Unchecked="OnRememberChanged" />
+                        <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="20,4,0,0"
+                                   Text="Aus: Ein Profil ändert sich nur über „Mit jetzigem Stand überschreiben“, beim Wechseln werden Änderungen verworfen." />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Button Grid.Row="2" Grid.Column="1" HorizontalAlignment="Right" Content="Schließen" IsCancel="True" Margin="0,12,0,0" Click="OnCloseClick" />
+    </Grid>
+</Window>
