@@ -208,6 +208,9 @@ public sealed class DeviceVisual
     }
 
     /// <summary>Positioniert die LED-Kacheln im aktuellen Rechteck; Größe abhängig von Form und Dichte.</summary>
+    /// <summary>Nach Umschalten von <see cref="DeviceLayoutItem.ReverseLeds"/>: Kacheln neu anordnen.</summary>
+    public void RefreshLedOrder() => LayoutLeds();
+
     private void LayoutLeds()
     {
         var positions = _shape.ComputeNormalizedPositions();
@@ -246,8 +249,10 @@ public sealed class DeviceVisual
             led.Height = ledH;
             led.CornerRadius = new CornerRadius(radius);
             // Die LED-Kacheln dürfen über das Rechteck hinausragen (Kreis-/Rahmen-LEDs sitzen auf der Kante).
-            Canvas.SetLeft(led, positions[i].U * w - ledW / 2);
-            Canvas.SetTop(led, positions[i].V * h - ledH / 2);
+            // Umgekehrte Reihenfolge: Kachel „LED i“ sitzt dort, wo die Engine ihre Farbe abliest.
+            var pos = positions[Item.ReverseLeds ? positions.Count - 1 - i : i];
+            Canvas.SetLeft(led, pos.U * w - ledW / 2);
+            Canvas.SetTop(led, pos.V * h - ledH / 2);
         }
     }
 

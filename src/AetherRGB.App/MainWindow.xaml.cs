@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     private ScreenCaptureService? _screenCapture;
     private ScreenRegionEditorWindow? _screenEditor;
     private SensorPanelService? _sensorPanels;
+    private CoolingService? _cooling;
     private readonly System.Windows.Threading.DispatcherTimer _screenStatusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private ChromaBridgeListener? _chromaBridge;
     private MsiMysticLightDeviceProvider? _msiProvider;
@@ -102,6 +103,7 @@ public partial class MainWindow : Window
 
         InitializeScreenSync();
         InitializeSensorPanels();
+        InitializeCooling();
 
         InitializeProfiles();
         EffectsPanel.LogMessage += Log;
@@ -570,6 +572,28 @@ public partial class MainWindow : Window
         c.UseAida64 = PanelAidaCheck.IsChecked == true;
         c.UseNvidia = PanelNvidiaCheck.IsChecked == true;
         c.Topmost = PanelTopmostCheck.IsChecked == true;
+    }
+
+    // ===================== Kühlung (Lüfterkurven) =====================
+
+    private void InitializeCooling()
+    {
+        try
+        {
+            _cooling = new CoolingService(() => _config.Cooling) { SaveConfig = () => _config.Save() };
+            _cooling.LogMessage += Log;
+        }
+        catch (Exception ex) { Log("Kühlung konnte nicht gestartet werden: " + ExceptionText.Describe(ex), LogLevel.Error); }
+    }
+
+    private void OnCoolingClick(object sender, RoutedEventArgs e)
+    {
+        if (_cooling is null)
+        {
+            MessageBox.Show(this, "Die Kühlung konnte nicht gestartet werden — Details stehen im Log.", "Kühlung", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        _cooling.OpenWindow(this);
     }
 
     private void OnSensorPanelEditorClick(object sender, RoutedEventArgs e)
@@ -1227,6 +1251,7 @@ public partial class MainWindow : Window
         _screenStatusTimer.Stop();
         _screenCapture?.Dispose();
         _sensorPanels?.Dispose();
+        _cooling?.Dispose();
         _ = _api?.StopAsync();
         _chromaBridge?.Dispose();
         _ = _chromaRest?.StopAsync();

@@ -152,6 +152,75 @@ public sealed class MsiMysticLightConfig
     public bool? Enabled { get; set; }
 }
 
+/// <summary>Wie ein Lüfter angesteuert wird. <see cref="SmartEfficient"/>/<see cref="SmartQuiet"/> sind das
+/// Ergebnis der Smart-Kalibrierung — technisch auch eine Kurve (<see cref="FanProfileConfig.Curve"/>), der
+/// Modus merkt sich nur, welches Profil zuletzt angelegt wurde.</summary>
+public enum CoolingFanMode
+{
+    /// <summary>Feste Ansteuerung (<see cref="FanProfileConfig.ManualPercent"/>), unabhängig von der Temperatur.</summary>
+    Manual,
+    /// <summary>Eigene Kurve (<see cref="FanProfileConfig.Curve"/>).</summary>
+    Curve,
+    /// <summary>Durch die Smart-Kalibrierung erzeugt, auf niedrige Temperatur optimiert (dreht früher hoch).</summary>
+    SmartEfficient,
+    /// <summary>Durch die Smart-Kalibrierung erzeugt, auf Lautstärke optimiert (bleibt länger auf dem Minimum).</summary>
+    SmartQuiet
+}
+
+public sealed class FanCurvePointConfig
+{
+    public double TempC { get; set; }
+    public int Percent { get; set; }
+}
+
+/// <summary>Einstellungen für einen erkannten Lüfter (<see cref="Cooling.FanInfo.Id"/>).</summary>
+public sealed class FanProfileConfig
+{
+    public required string FanId { get; set; }
+    public string DisplayName { get; set; } = "";
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public CoolingFanMode Mode { get; set; } = CoolingFanMode.Curve;
+
+    public int ManualPercent { get; set; } = 60;
+
+    /// <summary>Kurve für <see cref="CoolingFanMode.Curve"/> und die Smart-Profile — Standard entspricht
+    /// dem Grundprofil für Lüfter ohne Drehzahlsignal: bis 40 °C 50 %, linear bis 70 °C auf 100 %.</summary>
+    public List<FanCurvePointConfig> Curve { get; set; } = new()
+    {
+        new FanCurvePointConfig { TempC = 0, Percent = 50 },
+        new FanCurvePointConfig { TempC = 40, Percent = 50 },
+        new FanCurvePointConfig { TempC = 70, Percent = 100 },
+        new FanCurvePointConfig { TempC = 100, Percent = 100 },
+    };
+
+    /// <summary>Sensor-ID aus dem <c>SensorHub</c> (z. B. <c>lhm/temp/cpu</c>, <c>aida/TCPU</c>), die die Kurve
+    /// steuert. Leer = automatisch die erste gefundene CPU-Temperatur.</summary>
+    public string TempSensorId { get; set; } = "";
+
+    /// <summary>Niedrigste Ansteuerung in %, bei der der Lüfter laut Kalibrierung ein Drehzahlsignal liefert.
+    /// <c>null</c> = nicht kalibriert.</summary>
+    public int? MeasuredMinPercent { get; set; }
+
+    /// <summary>false = der Lüfter hat beim Kalibrieren bis 100 % kein Drehzahlsignal geliefert (z. B. ein
+    /// reiner Pumpen-/Lichtausgang ohne Tacho). Bleibt dann auf dem Grundprofil, keine Smart-Kalibrierung.</summary>
+    public bool HasRpmSignal { get; set; } = true;
+
+    public bool Calibrated { get; set; }
+    public DateTime? LastCalibrationUtc { get; set; }
+}
+
+/// <summary>Automatische Lüftersteuerung über erkannte PWM-Kanäle (LibreHardwareMonitor, braucht Adminrechte).</summary>
+public sealed class CoolingConfig
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>Wie oft Temperatur geprüft und ggf. nachgeregelt wird.</summary>
+    public int IntervalMs { get; set; } = 1000;
+
+    public List<FanProfileConfig> Fans { get; set; } = new();
+}
+
 public sealed class AppConfig
 {
     public OpenRgbConfig OpenRgb { get; set; } = new();
@@ -165,6 +234,7 @@ public sealed class AppConfig
     public MsiMysticLightConfig MsiMysticLight { get; set; } = new();
     public ScreenSyncConfig ScreenSync { get; set; } = new();
     public SensorPanelConfig SensorPanel { get; set; } = new();
+    public CoolingConfig Cooling { get; set; } = new();
     public bool CheckForUpdatesOnStartup { get; set; } = true;
 
     /// <summary>Beim Anmelden an Windows minimiert (im Tray) starten. Standard an — fehlt in Dateien bis

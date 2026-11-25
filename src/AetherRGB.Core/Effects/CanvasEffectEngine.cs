@@ -128,6 +128,8 @@ public sealed class CanvasEffectEngine : IDisposable
         // Spiel-Anzeige: Gerät mit zugewiesenen Bereichen zeigt z. B. den Lebensbalken über seine LEDs.
         if (effect is IDeviceAwareCanvasEffect deviceAware && item.ScreenRegions.Count > 0)
             deviceAware.ApplyToDevice(item, sampled, effectTime);
+        // Strip andersherum angeschlossen: LED 1 bekommt die Farbe am Ende der Form (Füllstand läuft mit).
+        if (item.ReverseLeds) Array.Reverse(sampled);
         for (int i = 0; i < sampled.Length; i++) colors[i] = Scale(sampled[i], brightness);
         return colors;
     }

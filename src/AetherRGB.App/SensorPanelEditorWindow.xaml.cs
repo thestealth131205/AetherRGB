@@ -92,7 +92,7 @@ public partial class SensorPanelEditorWindow : Window
         SensorList.ItemsSource = _sensorView;
 
         _frameTimer.Tick += (_, _) => { _hub.Demand(); _surface.InvalidateVisual(); };
-        _sensorTimer.Tick += (_, _) => RefreshSensors();
+        _sensorTimer.Tick += (_, _) => { RefreshSensors(); RefreshScreenAreas(); };
         _frameTimer.Start();
         _sensorTimer.Start();
         _hub.Demand();
@@ -109,6 +109,7 @@ public partial class SensorPanelEditorWindow : Window
 
         ReloadPanelCombo(config.PanelId);
         RefreshSensors();
+        InitScreenAreas();
     }
 
     private void OnStoreChanged() => Dispatcher.BeginInvoke(() =>
@@ -491,6 +492,8 @@ public partial class SensorPanelEditorWindow : Window
                 item.W = 240; item.H = 160; item.CornerRadius = 0; break;
             case PanelItemKind.Box:
                 item.W = 320; item.H = 200; item.BackColor = new(21, 22, 28); item.BorderColor = new(42, 43, 53); item.BorderWidth = 1; item.CornerRadius = 12; break;
+            case PanelItemKind.ScreenArea:
+                item.W = 360; item.H = 40; item.CornerRadius = 4; item.Stretch = PanelStretch.Fill; item.BackColor = new(32, 33, 42); break;
         }
         if (UsesSensor(kind))
         {
@@ -743,12 +746,17 @@ public partial class SensorPanelEditorWindow : Window
 
     private void OnOverlayDragOver(object sender, DragEventArgs e)
     {
-        e.Effects = e.Data.GetDataPresent(typeof(SensorRow)) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Effects = e.Data.GetDataPresent(typeof(SensorRow)) || e.Data.GetDataPresent(typeof(ScreenAreaRow)) ? DragDropEffects.Copy : DragDropEffects.None;
         e.Handled = true;
     }
 
     private void OnOverlayDrop(object sender, DragEventArgs e)
     {
+        if (e.Data.GetData(typeof(ScreenAreaRow)) is ScreenAreaRow area)
+        {
+            DropScreenArea(area, e.GetPosition(Overlay));
+            return;
+        }
         if (e.Data.GetData(typeof(SensorRow)) is not SensorRow sensor) return;
         var p = e.GetPosition(Overlay);
         var target = PanelLogic.HitTest(_doc, p.X, p.Y);

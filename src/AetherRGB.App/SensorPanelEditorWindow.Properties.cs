@@ -120,6 +120,9 @@ public partial class SensorPanelEditorWindow
                 ComboField("Einpassen", new[] { "Ganz zeigen", "Ausfüllen (beschneiden)", "Verzerren" }, (int)item.Stretch, i => Edit(() => item.Stretch = (PanelStretch)i));
                 SliderField("Ecken", 0, 200, item.CornerRadius, "0", v => Edit(() => item.CornerRadius = v));
                 break;
+            case PanelItemKind.ScreenArea:
+                ScreenAreaFields(item);
+                break;
         }
     }
 

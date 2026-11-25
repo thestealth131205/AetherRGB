@@ -29,6 +29,10 @@ public sealed class DeviceLayoutItem
     /// <summary>Geräte-Helligkeit 0..100 %, zusätzlich zur Helligkeit der Szene.</summary>
     public int Brightness { get; set; } = 100;
 
+    /// <summary>LED-Reihenfolge umkehren: LED 1 sitzt am Ende der Form statt am Anfang (Strip andersherum
+    /// angeschlossen). Gilt für die Effekt-Fläche und die Spiel-Anzeige (Füllstand).</summary>
+    public bool ReverseLeds { get; set; }
+
     /// <summary>Spiel-Anzeige (Effekte „Spiel: …“ und „Bildschirm – Spiel-Profil“): IDs der Bereiche des Profils, die
     /// dieses Gerät zeigt. Der erste ist die Hauptanzeige (leer = Effekt-Fläche wie bei jedem anderen Effekt), die
     /// übrigen überdecken sie nur, solange sie kritisch sind (blinkende Stufe, Blitz). Leere Liste = nur Effekt-Fläche.</summary>
@@ -36,7 +40,8 @@ public sealed class DeviceLayoutItem
     private List<string> _screenRegions = new();
 
     /// <summary>Canvas-Position jeder LED: die normierten Positionen der Form werden ins Rechteck
-    /// eingepasst und um die Rechteck-Mitte gedreht. Reihenfolge = LED-Reihenfolge am Gerät.</summary>
+    /// eingepasst und um die Rechteck-Mitte gedreht. Reihenfolge = Reihenfolge der Form; bei
+    /// <see cref="ReverseLeds"/> kehrt <c>CanvasEffectEngine.RenderItem</c> die Farben danach um.</summary>
     public IReadOnlyList<(double X, double Y)> ComputeLedPositions(LedShape shape)
     {
         var normalized = shape.ComputeNormalizedPositions();
@@ -69,6 +74,7 @@ public sealed class DeviceLayoutItem
         Height = Height,
         RotationDegrees = RotationDegrees,
         Brightness = Brightness,
+        ReverseLeds = ReverseLeds,
         ScreenRegions = ScreenRegions.ToList()
     };
 }

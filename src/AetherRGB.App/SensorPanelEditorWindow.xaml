@@ -64,6 +64,41 @@
             <Border DockPanel.Dock="Bottom" Style="{StaticResource Card}" Margin="0,8,0,0">
                 <TextBlock x:Name="SourceStatusText" TextWrapping="Wrap" FontSize="11" Style="{StaticResource MutedText}" />
             </Border>
+            <Border DockPanel.Dock="Bottom" Style="{StaticResource Card}" Margin="0,8,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Bildschirm-Bereiche" FontWeight="SemiBold" Margin="0,0,0,4" />
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource MutedText}" TextWrapping="Wrap" FontSize="11" Margin="0,0,0,6"
+                               Text="Abgriffe aus dem Bildschirm-Sync. Auf die Fläche ziehen = Balken mit den Farben aus dem Spiel. Auf einen Bildschirm-Bereich ziehen = Abgriff ersetzen." />
+                    <TextBlock x:Name="ScreenAreaEmptyText" DockPanel.Dock="Top" Style="{StaticResource MutedText}" TextWrapping="Wrap" FontSize="11" Visibility="Collapsed"
+                               Text="Noch keine Bereiche — im Bildschirm-Sync (Einstellungen → Bereiche bearbeiten) anlegen." />
+                    <ListBox x:Name="ScreenAreaList" MaxHeight="190" Background="{StaticResource BrushPanelAlt}" BorderBrush="{StaticResource BrushBorder}" Foreground="{StaticResource BrushText}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             PreviewMouseLeftButtonDown="OnScreenAreaListMouseDown" PreviewMouseMove="OnScreenAreaListMouseMove" MouseDoubleClick="OnScreenAreaListDoubleClick">
+                        <ListBox.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.HeaderTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" Foreground="{StaticResource BrushAccentHover}" Margin="2,6,0,2" />
+                                    </DataTemplate>
+                                </GroupStyle.HeaderTemplate>
+                            </GroupStyle>
+                        </ListBox.GroupStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ToolTip="{Binding Tip}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="26" Height="12" CornerRadius="2" Background="{Binding Swatch}" BorderBrush="{StaticResource BrushBorder}" BorderThickness="1"
+                                            VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBlock Grid.Column="1" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
             <Border Style="{StaticResource Card}" Margin="0,8,0,0">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="Sensoren" FontWeight="SemiBold" Margin="0,0,0,4" />

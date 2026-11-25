@@ -37,6 +37,10 @@
                             ToolTip="Sensor-Panel-Editor für ein Zweitdisplay öffnen (eigenes Fenster)">
                         <TextBlock Text="📟  Sensor-Panel" />
                     </Button>
+                    <Button x:Name="NavCoolingButton" Style="{StaticResource NavButton}" Click="OnCoolingClick"
+                            ToolTip="Lüfter erkennen und nach Temperaturkurven steuern (eigenes Fenster)">
+                        <TextBlock Text="🌀  Kühlung" />
+                    </Button>
                 </StackPanel>
 
                 <StackPanel DockPanel.Dock="Bottom" Margin="20,0,20,20">

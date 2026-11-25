@@ -118,6 +118,9 @@
 
                     <TextBlock Grid.Row="0" Grid.Column="6" Text="Layout-Helligkeit" Style="{StaticResource FieldLabel}" />
                     <TextBox x:Name="FieldLayoutBrightness" Grid.Row="0" Grid.Column="7" Style="{StaticResource FieldBox}" />
+                    <TextBlock Grid.Row="1" Grid.Column="6" Text="LED-Reihenfolge umkehren" Style="{StaticResource FieldLabel}" />
+                    <Button x:Name="ReverseLedsButton" Grid.Row="1" Grid.Column="7" Content="Aus" Padding="8,4" Margin="0,4"
+                            ToolTip="LED 1 an das andere Ende der Form legen (Strip andersherum angeschlossen)" Click="OnReverseLedsClick" />
                 </Grid>
 
                 <!-- Spiel-Anzeige: Bereiche eines Bildschirm-Profils dem gewählten Gerät zuweisen (BuildGamePanel) -->

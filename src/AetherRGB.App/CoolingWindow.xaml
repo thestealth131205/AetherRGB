@@ -1,0 +1,88 @@
+<Window x:Class="AetherRGB.App.CoolingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AetherRGB — Kühlung" Width="980" Height="680" MinWidth="820" MinHeight="520"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{StaticResource BrushBackground}" Foreground="{StaticResource BrushText}">
+    <Grid Margin="20">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="300" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,14">
+            <TextBlock Text="🌀  Kühlung" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Erkennt Lüfter über die Super-I/O-Chips des Mainboards (LibreHardwareMonitor, braucht Adminrechte) und steuert sie nach einer Temperaturkurve. Die Smart-Kalibrierung misst dafür einmal die niedrigste Ansteuerung mit Drehzahlsignal und beobachtet dann, wie sich die Temperatur bei fester Drehzahl verhält." />
+            <Border x:Name="ElevationWarning" Background="{StaticResource BrushPanelAlt}" BorderBrush="{StaticResource BrushWarning}"
+                    BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,10,0,0" Visibility="Collapsed">
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Als Administrator neu starten" Click="OnRestartElevatedClick" />
+                    <TextBlock Text="Ohne Administratorrechte findet AetherRGB keine Lüfter." VerticalAlignment="Center"
+                               TextWrapping="Wrap" Margin="0,0,10,0" />
+                </DockPanel>
+            </Border>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <CheckBox x:Name="EnabledCheck" Content="Kühlung aktiv" VerticalAlignment="Center" Checked="OnEnabledChanged" Unchecked="OnEnabledChanged" />
+                <TextBlock Text="Status:" Margin="20,0,6,0" VerticalAlignment="Center" Style="{StaticResource MutedText}" />
+                <TextBlock x:Name="StatusText" VerticalAlignment="Center" Style="{StaticResource MutedText}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Liste -->
+        <DockPanel Grid.Row="1" Grid.Column="0" Margin="0,0,20,0">
+            <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                <Button x:Name="CalibrateButton" Content="⚙  Smart-Kalibrierung starten" Style="{StaticResource PrimaryButton}"
+                        Click="OnCalibrateClick"
+                        ToolTip="Misst für jeden Lüfter die niedrigste Ansteuerung mit Drehzahlsignal und erzeugt daraus ein Effizient- und ein Leise-Profil (dauert ein bis zwei Minuten)." />
+                <ProgressBar x:Name="CalibrationBar" Height="6" Margin="0,8,0,0" Visibility="Collapsed" />
+                <TextBlock x:Name="CalibrationText" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed" />
+                <Button x:Name="RefreshButton" Content="↻  Lüfter neu einlesen" Margin="0,8,0,0" Click="OnRefreshClick" />
+            </StackPanel>
+            <ListBox x:Name="FanList" Style="{StaticResource DeviceListBox}" SelectionChanged="OnSelectionChanged" DisplayMemberPath="DisplayLabel" />
+        </DockPanel>
+
+        <!-- Details -->
+        <ScrollViewer Grid.Row="1" Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="DetailPanel" Visibility="Collapsed">
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock x:Name="FanTitleText" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock x:Name="FanInfoText" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,12" />
+
+                        <TextBlock Text="Modus" Style="{StaticResource MutedText}" />
+                        <ComboBox x:Name="ModeCombo" Margin="0,4,0,12" SelectionChanged="OnModeChanged">
+                            <ComboBoxItem Content="Feste Ansteuerung" Tag="Manual" />
+                            <ComboBoxItem Content="Eigene Kurve" Tag="Curve" />
+                            <ComboBoxItem Content="Smart: Effizient" Tag="SmartEfficient" />
+                            <ComboBoxItem Content="Smart: Leise" Tag="SmartQuiet" />
+                        </ComboBox>
+
+                        <StackPanel x:Name="ManualPanel">
+                            <TextBlock Text="Feste Ansteuerung (%)" Style="{StaticResource MutedText}" />
+                            <Slider x:Name="ManualSlider" Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
+                                    ValueChanged="OnManualPercentChanged" Margin="0,4,0,4" />
+                            <TextBlock x:Name="ManualPercentText" Style="{StaticResource MutedText}" Margin="0,0,0,12" />
+                        </StackPanel>
+
+                        <StackPanel x:Name="CurvePanel">
+                            <TextBlock Text="Temperaturquelle" Style="{StaticResource MutedText}" />
+                            <ComboBox x:Name="TempSensorCombo" Margin="0,4,0,12" SelectionChanged="OnTempSensorChanged" />
+
+                            <TextBlock Text="Kurve (Temperatur °C → Ansteuerung %)" Style="{StaticResource MutedText}" />
+                            <Canvas x:Name="CurvePreview" Height="120" Background="{StaticResource BrushPanelAlt}" Margin="0,6,0,8" />
+                            <ContentControl x:Name="CurvePointsList" />
+                            <Button Content="+ Punkt" HorizontalAlignment="Left" Margin="0,4,0,12" Click="OnAddPointClick" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="CalibrationInfoText" Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

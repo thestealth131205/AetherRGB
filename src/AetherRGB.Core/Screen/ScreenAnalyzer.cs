@@ -119,11 +119,15 @@ public sealed class ScreenAnalyzer
 
     /// <summary>Bild eines Bereichs: je Zelle der Mittelwert, höchstens <see cref="MirrorMaxCols"/> ×
     /// <see cref="MirrorMaxRows"/> Zellen, bei kleinen Bereichen 1 Zelle = 1 Pixel des Analysebildes.</summary>
-    public static (RgbColor[] Pixels, int Cols, int Rows) RegionPixels(ScreenImage image, RelRect area, double saturation)
+    public static (RgbColor[] Pixels, int Cols, int Rows) RegionPixels(ScreenImage image, RelRect area, double saturation) =>
+        RegionPixels(image, area, saturation, MirrorMaxCols, MirrorMaxRows);
+
+    /// <summary>Wie oben, mit eigener Höchstgröße (Sensor-Panel: auch hohe Bereiche wie die Minimap).</summary>
+    public static (RgbColor[] Pixels, int Cols, int Rows) RegionPixels(ScreenImage image, RelRect area, double saturation, int maxCols, int maxRows)
     {
         var (x0, y0, x1, y1) = image.ToPixels(area);
         int w = x1 - x0, h = y1 - y0;
-        int cols = Math.Min(w, MirrorMaxCols), rows = Math.Min(h, MirrorMaxRows);
+        int cols = Math.Clamp(w, 1, Math.Max(1, maxCols)), rows = Math.Clamp(h, 1, Math.Max(1, maxRows));
         var result = new RgbColor[cols * rows];
         var px = image.Bgra;
         for (int ry = 0; ry < rows; ry++)

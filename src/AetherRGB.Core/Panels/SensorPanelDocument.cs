@@ -25,6 +25,19 @@ public enum PanelItemKind
     Image,
     /// <summary>Rechteck als Hintergrund/Rahmen für Gruppen.</summary>
     Box,
+    /// <summary>Abgegriffener Bereich aus dem Bildschirm-Sync (z. B. Lebensbalken), vergrößert mit seinen Farben.</summary>
+    ScreenArea,
+}
+
+/// <summary>Wie ein Bildschirm-Bereich im Panel erscheint.</summary>
+public enum PanelScreenView
+{
+    /// <summary>Bild des Bereichs, auf das Element vergrößert (der Balken aus dem Spiel 1:1).</summary>
+    Image,
+    /// <summary>Eine Fläche in der Mischfarbe des Bereichs.</summary>
+    Average,
+    /// <summary>Messwert des Bereichs als Füllstand-Balken in den Farbstufen aus dem Bildschirm-Sync (wie auf den LEDs).</summary>
+    Gauge,
 }
 
 public enum PanelAlign { Left, Center, Right }
@@ -116,6 +129,16 @@ public sealed class PanelItem
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public PanelStretch Stretch { get; set; } = PanelStretch.Uniform;
 
+    /// <summary>Bildschirm-Bereich: Profil und Bereich aus dem Bildschirm-Sync.</summary>
+    public string ScreenProfileId { get; set; } = "";
+    public string ScreenRegionId { get; set; } = "";
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public PanelScreenView ScreenView { get; set; } = PanelScreenView.Image;
+
+    /// <summary>Weich vergrößern (Verläufe glatt); aus = harte Pixelkanten.</summary>
+    public bool ScreenSmooth { get; set; } = true;
+
     public PanelItem Clone()
     {
         var c = (PanelItem)MemberwiseClone();
@@ -136,6 +159,7 @@ public sealed class PanelItem
         PanelItemKind.Animation => "Animation",
         PanelItemKind.Image => "Bild",
         PanelItemKind.Box => "Rechteck",
+        PanelItemKind.ScreenArea => "Bildschirm-Bereich",
         _ => kind.ToString(),
     };
 }
@@ -227,6 +251,9 @@ public static class SensorPanelSerializer
             i.SpeedPercent = Math.Clamp(i.SpeedPercent, Effects.EffectCatalog.MinSpeedPercent, Effects.EffectCatalog.MaxSpeedPercent);
             i.CellSize = Math.Clamp(i.CellSize, 1, 64);
             i.ImagePath ??= "";
+            i.ScreenProfileId = (i.ScreenProfileId ?? "").Trim();
+            i.ScreenRegionId = (i.ScreenRegionId ?? "").Trim();
+            if (!Enum.IsDefined(i.ScreenView)) i.ScreenView = PanelScreenView.Image;
             if (i.Min is { } mn && !double.IsFinite(mn)) i.Min = null;
             if (i.Max is { } mx && !double.IsFinite(mx)) i.Max = null;
             if (i.WarnAt is { } wa && !double.IsFinite(wa)) i.WarnAt = null;

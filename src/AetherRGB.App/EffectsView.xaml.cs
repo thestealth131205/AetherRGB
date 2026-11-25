@@ -749,6 +749,11 @@ public partial class EffectsView : UserControl
         SelectedTitle.Text = item?.DisplayName ?? "Kein Gerät ausgewählt";
         foreach (var b in new[] { ShapeButton, CenterButton, ResetRotationButton, RemoveButton }) b.IsEnabled = item is not null;
         foreach (var box in new[] { FieldX, FieldY, FieldWidth, FieldHeight, FieldRotation, FieldDeviceBrightness }) box.IsEnabled = item is not null;
+        ReverseLedsButton.IsEnabled = item is not null;
+        bool reversed = item?.ReverseLeds == true;
+        ReverseLedsButton.Content = reversed ? "⇆  An" : "Aus";
+        if (reversed) ReverseLedsButton.Background = (Brush)FindResource("BrushAccent");
+        else ReverseLedsButton.ClearValue(BackgroundProperty);
 
         FieldX.Text = item is null ? "-" : Fmt(item.CenterX);
         FieldY.Text = item is null ? "-" : Fmt(item.CenterY);
@@ -942,6 +947,15 @@ public partial class EffectsView : UserControl
             _selected.UpdateGeometry();
         }
 
+        UpdateFields();
+        SaveScenes();
+    }
+
+    private void OnReverseLedsClick(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null) return;
+        _selected.Item.ReverseLeds = !_selected.Item.ReverseLeds;
+        _selected.RefreshLedOrder();
         UpdateFields();
         SaveScenes();
     }

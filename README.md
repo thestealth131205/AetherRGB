@@ -182,6 +182,11 @@ auf eine Fläche legen, für ein sekundäres USB-Display wie das 5"-Panel von LC
     Einstellungen → Hardwareüberwachung → Externe Programme „Gemeinsamen Speicher aktivieren“ einschalten.
     AetherRGB liest nur. Ohne AIDA64 gibt es CPU-/Mainboard-Temperaturen und Lüfter nicht (dafür bräuchte es
     einen Kernel-Treiber, den AetherRGB bewusst nicht mitbringt).
+  - **Bildschirm-Bereiche**: Die Abgriffe aus dem Bildschirm-Sync (z. B. Leben, Schild, Minimap) stehen im
+    Editor in der Liste „Bildschirm-Bereiche“ und lassen sich auf die Fläche ziehen. Das Element zeigt das Bild
+    des Bereichs vergrößert mit den Farben aus dem Spiel (gesättigt wie im Bildschirm-Sync), dessen
+    Mischfarbe oder den Messwert als Füllstand-Balken in den Farbstufen des Bereichs (wie auf den LEDs,
+    wahlweise senkrecht, in Segmenten und mit Prozentwert). Die Bildschirmaufnahme läuft, solange so ein Element angezeigt wird.
   - **Editor** (eigenes Fenster): Elemente Text, Wert, Balken (durchgehend oder in Segmenten, waagerecht/
     senkrecht), Rundinstrument, Verlauf (bis 10 min), Uhr/Datum, Animation (jeder Effekt aus dem Katalog,
     auch eigene aus dem Effekt-Editor), Bild (PNG/JPG/BMP, animiertes GIF) und Rechteck. Verschieben,
@@ -204,6 +209,25 @@ auf eine Fläche legen, für ein sekundäres USB-Display wie das 5"-Panel von LC
   - Gespeichert in `%APPDATA%\AetherRGB\profiles.json`. Lokale API: `GET /api/profiles`,
     `POST /api/profiles/{id oder Name}/activate`, `POST /api/profiles/next`, `POST /api/profiles/previous`.
 
+- **Kühlung** (Seitenleiste „🌀 Kühlung“, eigenes Fenster): erkennt Lüfter über die Super-I/O-Chips des
+  Mainboards und AIO-/Lüfter-Controller mit [LibreHardwareMonitorLib](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor)
+  (MPL-2.0) — dieselbe, geprüfte Bibliothek, die auch FanControl und OpenHardwareMonitor nutzen; bewusst
+  **kein eigener** SMBus-/EC-Zugriff, aus demselben Grund wie beim OpenRGB-SDK für Motherboard-ARGB.
+  Braucht Adminrechte (lädt den WinRing0-Treiber), AetherRGB bietet dafür einen Neustart als Administrator
+  an. Reine GPU-Lüfter steuert AetherRGB nicht — die regelt die Grafikkartenfirmware bereits selbst.
+  - Jeder Lüfter bekommt eine **Temperaturkurve** (Stützpunkte Temperatur °C → Ansteuerung %, linear
+    interpoliert) bezogen auf eine wählbare Temperatur (automatisch die erste gefundene CPU-Temperatur,
+    oder ein beliebiger Sensor aus AIDA64/NVIDIA/Windows). Ohne Kalibrierung gilt ein vorsichtiges
+    Grundprofil: bis 40 °C 50 %, linear bis 70 °C auf 100 %. Alternativ eine **feste Ansteuerung** in %.
+  - **Smart-Kalibrierung „Effizient“/„Leise“**: misst zuerst für jeden Lüfter gemeinsam, ab welcher
+    Ansteuerung er ein Drehzahlsignal liefert (Lüfter ohne Tacho — z. B. reine Pumpen — bleiben beim
+    Grundprofil), stellt danach alle auf dieses Minimum (mind. 50 %) und beobachtet CPU- und
+    Mainboard-Temperatur über rund eine Minute, um daraus zwei Kurven abzuleiten: **Effizient** dreht
+    früher hoch (niedrigere Temperatur), **Leise** bleibt länger auf dem Minimum und holt die Drehzahl
+    dafür steiler nach. Die erzeugten Kurven bleiben danach normal bearbeitbar.
+  - Die Ansteuerung ändert sich sanft (höchstens 4 %/Takt, Standard 1 s), damit der Controller nicht mit
+    Befehlen überschüttet wird — dieselbe Lektion wie beim MSI-Mystic-Light-SDK.
+
 ## Architektur
 
 ```
@@ -217,7 +241,8 @@ AetherRGB.Providers.MsiMysticLight MSI-RGB via offiziellem Mystic Light SDK oder
 AetherRGB.Api                   Lokale REST-API (nur 127.0.0.1) und Chroma-REST-Nachbau (localhost:54235)
 native/ChromaBridge             Ersatz-RzChromaSDK64.dll (C) → UDP an AetherRGB
 AetherRGB.App                   WPF-Hauptanwendung, Bildschirmaufnahme (DXGI/GDI, Vortice) und Bereichs-Editor,
-                                Sensor-Quellen (PDH, IOCTL, NVML) und Sensor-Panel (Renderer, Display-Fenster, Editor)
+                                Sensor-Quellen (PDH, IOCTL, NVML) und Sensor-Panel (Renderer, Display-Fenster, Editor),
+                                Kühlung (LibreHardwareMonitorLib: Lüftererkennung/-steuerung, Kalibrierung, Fenster)
 ```
 
 ## Build

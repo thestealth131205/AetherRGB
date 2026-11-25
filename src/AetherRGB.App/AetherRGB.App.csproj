@@ -9,9 +9,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AetherRGB.App</RootNamespace>
     <AssemblyName>AetherRGB</AssemblyName>
-    <Version>0.3.15</Version>
-    <AssemblyVersion>0.3.15.0</AssemblyVersion>
-    <FileVersion>0.3.15.0</FileVersion>
+    <Version>0.3.16</Version>
+    <AssemblyVersion>0.3.16.0</AssemblyVersion>
+    <FileVersion>0.3.16.0</FileVersion>
     <Product>AetherRGB</Product>
     <!-- Bildschirmaufnahme: gemappte DXGI-Textur direkt als Span lesen statt 8 MB pro Bild zu kopieren. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -52,6 +52,11 @@
   <ItemGroup>
     <!-- Bildschirm-Sync: Desktop Duplication (DXGI), wie OBS. MIT-Lizenz. -->
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <!-- Kühlung: Lüfter erkennen/steuern über die Super-I/O-Chips auf dem Mainboard. Dieselbe,
+         geprüfte Bibliothek, die auch FanControl und OpenHardwareMonitor nutzen — bewusst kein
+         eigener SMBus/EC-Zugriff (gleiche Begründung wie beim OpenRGB-SDK für Motherboard-ARGB).
+         MPL-2.0-Lizenz. Braucht Adminrechte (lädt den WinRing0-Treiber). -->
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.4" />
   </ItemGroup>
 
   <ItemGroup>

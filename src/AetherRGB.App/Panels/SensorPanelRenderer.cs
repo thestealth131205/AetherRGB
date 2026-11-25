@@ -6,6 +6,7 @@ using System.Windows.Media.Imaging;
 using AetherRGB.Core.Devices;
 using AetherRGB.Core.Effects;
 using AetherRGB.Core.Panels;
+using AetherRGB.Core.Screen;
 using AetherRGB.Core.Sensors;
 
 namespace AetherRGB.App.Panels;
@@ -18,6 +19,7 @@ public sealed class SensorPanelRenderer
     private readonly SensorHub _hub;
     private readonly Func<string?, string?> _resolveAsset;
     private readonly Dictionary<string, AnimationState> _animations = new();
+    private readonly Dictionary<string, ScreenAreaState> _screenAreas = new();
     private readonly Dictionary<string, (AnimatedImage? Image, DateTime Loaded)> _images = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<(RgbColor, double), SolidColorBrush> _brushes = new();
     private readonly Dictionary<string, Typeface> _typefaces = new();
@@ -44,6 +46,20 @@ public sealed class SensorPanelRenderer
         public int[] Pixels = Array.Empty<int>();
         public double EffectSeconds;
     }
+
+    /// <summary>Zuletzt gezeichnetes Bild eines Bildschirm-Bereichs — nur neu rechnen, wenn ein neues Bild da ist.</summary>
+    private sealed class ScreenAreaState
+    {
+        public ScreenImage? Source;
+        public RelRect Area;
+        public double Saturation;
+        public WriteableBitmap? Bitmap;
+        public int[] Pixels = Array.Empty<int>();
+        public RgbColor Average;
+    }
+
+    /// <summary>Größe, in der ein Bildschirm-Bereich höchstens berechnet wird (Analysebild hat ohnehin ≤ 960 Pixel Breite).</summary>
+    private const int ScreenAreaMaxCols = 256, ScreenAreaMaxRows = 256;
 
     public void Render(DrawingContext dc, SensorPanelDocument doc)
     {
@@ -75,6 +91,7 @@ public sealed class SensorPanelRenderer
                     case PanelItemKind.Graph: DrawGraph(dc, item, rect); break;
                     case PanelItemKind.Animation: DrawAnimation(dc, item, rect, dt); break;
                     case PanelItemKind.Image: DrawImage(dc, item, rect, now); break;
+                    case PanelItemKind.ScreenArea: DrawScreenArea(dc, item, rect); break;
                 }
             }
             catch (Exception ex)
@@ -92,6 +109,7 @@ public sealed class SensorPanelRenderer
     {
         var ids = doc.Items.Select(i => i.Id).ToHashSet();
         foreach (var id in _animations.Keys.Where(k => !ids.Contains(k)).ToList()) _animations.Remove(id);
+        foreach (var id in _screenAreas.Keys.Where(k => !ids.Contains(k)).ToList()) _screenAreas.Remove(id);
     }
 
     /// <summary>Geänderte Bilddateien neu laden.</summary>
@@ -351,6 +369,155 @@ public sealed class SensorPanelRenderer
         if (clip) dc.Pop();
         if (item.BorderWidth > 0)
             dc.DrawRoundedRectangle(null, new Pen(Brush(item.BorderColor), item.BorderWidth), rect, radius, radius);
+    }
+
+    private void DrawScreenArea(DrawingContext dc, PanelItem item, Rect rect)
+    {
+        var hub = ScreenHub.Shared;
+        // Hält die Bildschirmaufnahme am Laufen, solange das Element gezeichnet wird (wie ein Bildschirm-Effekt).
+        hub.Demand();
+        double radius = Math.Min(item.CornerRadius, Math.Min(rect.Width, rect.Height) / 2);
+        var region = hub.FindProfile(item.ScreenProfileId)?.Regions.FirstOrDefault(r => r.Id == item.ScreenRegionId);
+        if (region is not null && item.ScreenView == PanelScreenView.Gauge)
+        {
+            DrawScreenGauge(dc, item, rect, region, radius);
+            return;
+        }
+        var image = hub.IsLive ? hub.LatestImage : null;
+        if (region is null || image is null)
+        {
+            _screenAreas.Remove(item.Id);
+            dc.DrawRoundedRectangle(Brush(item.BackColor, 0.6), new Pen(Brush(item.BorderColor), 1), rect, radius, radius);
+            string hint = region is null
+                ? (item.ScreenRegionId.Length == 0 ? "🖥 Bereich aus „Bildschirm-Bereiche“ hierher ziehen" : "🖥 Bereich nicht mehr vorhanden")
+                : "🖥 " + region.Name + " — keine Bildschirmaufnahme";
+            DrawText(dc, hint, item, rect, item.LabelColor, Math.Clamp(rect.Height * 0.35, 9, 14), PanelAlign.Center, wrap: true, bold: false);
+            return;
+        }
+
+        if (!_screenAreas.TryGetValue(item.Id, out var state)) _screenAreas[item.Id] = state = new ScreenAreaState();
+        if (!ReferenceEquals(state.Source, image) || state.Area != region.Area || state.Saturation != hub.Saturation || state.Bitmap is null)
+        {
+            var (cells, cols, rows) = ScreenAnalyzer.RegionPixels(image, region.Area, hub.Saturation, ScreenAreaMaxCols, ScreenAreaMaxRows);
+            if (state.Bitmap is null || state.Bitmap.PixelWidth != cols || state.Bitmap.PixelHeight != rows)
+            {
+                state.Bitmap = new WriteableBitmap(cols, rows, 96, 96, PixelFormats.Bgr32, null);
+                state.Pixels = new int[cols * rows];
+            }
+            long r = 0, g = 0, b = 0;
+            for (int i = 0; i < cells.Length; i++)
+            {
+                var c = cells[i];
+                state.Pixels[i] = (c.R << 16) | (c.G << 8) | c.B;
+                r += c.R; g += c.G; b += c.B;
+            }
+            state.Bitmap.WritePixels(new Int32Rect(0, 0, cols, rows), state.Pixels, cols * 4, 0);
+            state.Average = new RgbColor((byte)(r / cells.Length), (byte)(g / cells.Length), (byte)(b / cells.Length));
+            state.Source = image;
+            state.Area = region.Area;
+            state.Saturation = hub.Saturation;
+        }
+
+        bool clip = radius > 0;
+        if (clip) dc.PushClip(new RectangleGeometry(rect, radius, radius));
+        if (item.ScreenView == PanelScreenView.Average)
+            dc.DrawRectangle(Brush(state.Average), null, rect);
+        else
+        {
+            // Skalierungsart gilt je Drawing, nicht je DrawImage — deshalb über eine kleine DrawingGroup.
+            var group = new DrawingGroup();
+            RenderOptions.SetBitmapScalingMode(group, item.ScreenSmooth ? BitmapScalingMode.Linear : BitmapScalingMode.NearestNeighbor);
+            using (var gdc = group.Open()) DrawStretched(gdc, state.Bitmap!, rect, item.Stretch);
+            dc.DrawDrawing(group);
+        }
+        if (clip) dc.Pop();
+        if (item.BorderWidth > 0)
+            dc.DrawRoundedRectangle(null, new Pen(Brush(item.BorderColor), item.BorderWidth), rect, radius, radius);
+    }
+
+    /// <summary>Bereich als Füllstand-Balken: Wert und Farbstufe kommen aus der Auswertung des Profils, wie auf einem
+    /// zugewiesenen LED-Gerät (Leben grün → gelb → orange → rot blinkend). Blitze leuchten kurz in ihrer Farbe auf,
+    /// Mischfarbe-Bereiche füllen das Element.</summary>
+    private void DrawScreenGauge(DrawingContext dc, PanelItem item, Rect rect, ScreenRegion region, double radius)
+    {
+        var hub = ScreenHub.Shared;
+        // Profil gezielt auswerten lassen — unabhängig davon, welches Spiel gerade im Vordergrund ist.
+        hub.Demand(item.ScreenProfileId);
+        var analysis = hub.IsLive ? hub.LatestFor(item.ScreenProfileId) : null;
+        RegionResult? result = null;
+        analysis?.Results.TryGetValue(region.Id, out result);
+
+        Rect bar = rect;
+        if (item.ShowValue && region.IsGauge && !item.Vertical)
+        {
+            double textW = Math.Min(rect.Width * 0.3, item.FontSize * 3.2);
+            string text = result is null ? "–" : $"{Math.Round(Math.Clamp(result.Value, 0, 1) * 100):0} %";
+            var color = result is null ? item.LabelColor : ScreenGauge.StepFor(region, result.Value).Color;
+            DrawText(dc, text, item, new Rect(rect.Right - textW, rect.Y, textW, rect.Height), color, item.FontSize, PanelAlign.Right, wrap: false);
+            bar = new Rect(rect.X, rect.Y, Math.Max(2, rect.Width - textW - 4), rect.Height);
+        }
+        radius = Math.Min(radius, Math.Min(bar.Width, bar.Height) / 2);
+        var back = Brush(item.BackColor, item.BackOpacity);
+        if (result is null)
+        {
+            dc.DrawRoundedRectangle(back, new Pen(Brush(item.BorderColor), 1), bar, radius, radius);
+            DrawText(dc, "🖥 " + region.Name + " — keine Bildschirmaufnahme", item, bar, item.LabelColor, Math.Clamp(bar.Height * 0.35, 9, 14), PanelAlign.Center, wrap: true, bold: false);
+            return;
+        }
+
+        long now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var elapsed = _clock.Elapsed;
+        if (!region.IsGauge)
+        {
+            dc.DrawRoundedRectangle(back, null, bar, radius, radius);
+            if (region.Rule is RegionRule.ColorFlash or RegionRule.ValueDrop)
+            {
+                double level = ScreenGauge.FlashLevel(region, result, now);
+                if (level > 0) dc.DrawRoundedRectangle(Brush(region.ColorHigh, level), null, bar, radius, radius);
+            }
+            else dc.DrawRoundedRectangle(Brush(result.Average), null, bar, radius, radius);
+        }
+        else
+        {
+            double frac = ScreenGauge.FillFor(region, result.Value, int.MaxValue);
+            var step = ScreenGauge.StepFor(region, result.Value);
+            bool on = !step.Blink || ScreenGauge.BlinkOn(region, elapsed);
+            if (!on) frac = 0;
+            var fill = Brush(step.Color);
+            if (item.Segments > 1)
+            {
+                int n = item.Segments;
+                double lit = Math.Round(frac * n * 4) / 4;
+                if (frac > 0.005 && lit < 1) lit = 1; // wie auf den LEDs: bei wenig Leben trotzdem ein ganzes Segment
+                double len = item.Vertical ? bar.Height : bar.Width;
+                double gap = Math.Max(1, len / n * 0.18);
+                double seg = (len - gap * (n - 1)) / n;
+                for (int i = 0; i < n; i++)
+                {
+                    var r = item.Vertical
+                        ? new Rect(bar.X, bar.Bottom - (i + 1) * seg - i * gap, bar.Width, seg)
+                        : new Rect(bar.X + i * (seg + gap), bar.Y, seg, bar.Height);
+                    double level = Math.Clamp(lit - i, 0, 1);
+                    dc.DrawRoundedRectangle(back, null, r, radius, radius);
+                    if (level > 0) dc.DrawRoundedRectangle(Brush(step.Color, level), null, r, radius, radius);
+                }
+            }
+            else
+            {
+                dc.DrawRoundedRectangle(back, null, bar, radius, radius);
+                if (frac > 0)
+                {
+                    var filled = item.Vertical
+                        ? new Rect(bar.X, bar.Bottom - bar.Height * frac, bar.Width, bar.Height * frac)
+                        : new Rect(bar.X, bar.Y, bar.Width * frac, bar.Height);
+                    dc.PushClip(new RectangleGeometry(bar, radius, radius));
+                    dc.DrawRectangle(fill, null, filled);
+                    dc.Pop();
+                }
+            }
+        }
+        if (item.BorderWidth > 0)
+            dc.DrawRoundedRectangle(null, new Pen(Brush(item.BorderColor), item.BorderWidth), bar, radius, radius);
     }
 
     /// <summary>Eigene Effekte bekommen bei jeder Dateiänderung einen neuen Descriptor — die Instanz dann neu erzeugen.</summary>
