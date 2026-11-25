@@ -28,6 +28,11 @@ Ebenen, Animations-Vorlagen und Keyframes. Die platzierten Geräte liegen zur Or
 
 ![Einstellungen mit MSI Mystic Light](docs/screenshots/einstellungen-msi.png)
 
+**Bildschirm-Sync — Bereichs-Editor**: Bereiche wie Lebens-/Schildbalken oder die Minimap direkt
+auf einem Standbild des Spiels einzeichnen, mit Live-Auswertung und Vorschau der Effekt-Fläche.
+
+![Bildschirm-Sync: Bereichs-Editor](docs/screenshots/bildschirm-sync-bereiche.png)
+
 ## Kernprinzipien
 
 - **Keine Cloud.** Keine Server-Kommunikation nach außen — alles läuft lokal auf dem PC. Die
