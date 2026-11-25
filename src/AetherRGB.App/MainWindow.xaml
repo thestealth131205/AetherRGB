@@ -171,6 +171,10 @@
                                               Content="Nur die belegten LEDs senden" />
                                     <TextBlock Text="Belegt die LED-Anordnung z. B. 20 von 100 LEDs eines JRAINBOW-Anschlusses, werden die übrigen einmal schwarz gesetzt und danach nur noch die 20 gesendet. Lehnt das Board das ab, sendet AetherRGB automatisch wieder alle LEDs."
                                                Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                                    <CheckBox x:Name="MsiElevatedAutostartCheck" Margin="0,12,0,4"
+                                              Content="Autostart mit Adminrechten ohne UAC-Abfrage erlauben" />
+                                    <TextBlock Text="Nur für den Autostart beim Anmelden relevant. Zugestimmt = AetherRGB legt eine Aufgabe in der Windows-Aufgabenplanung an, die beim Anmelden mit Adminrechten startet, ohne UAC-Abfrage — nötig, damit das MSI SDK im Autostart Geräte findet. Abgelehnt = Autostart läuft ohne Adminrechte, das SDK fragt dann bei jeder Anmeldung einmal per UAC nach einem Neustart als Administrator. Sicherheitshinweis: Dieses Muster — elevierter Start ohne Sicherheitsabfrage — gleicht dem mancher Schadsoftware, deshalb schlagen Antivirenprogramme dabei manchmal Alarm, auch wenn hier nichts Böswilliges passiert."
+                                               Style="{StaticResource MutedText}" TextWrapping="Wrap" />
                                 </StackPanel>
 
                                 <!-- Eigene HID-Variante -->

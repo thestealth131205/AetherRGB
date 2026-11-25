@@ -146,6 +146,14 @@ public sealed class MsiMysticLightConfig
     /// <summary>Nur für <see cref="MsiBackend.DirectHid"/>: LED-Anzahl der Sammelzone.</summary>
     public int LedCountOverride { get; set; } = 1;
 
+    /// <summary>Erlaubt die Windows-Aufgabenplanung, AetherRGB beim Anmelden mit Administratorrechten
+    /// und OHNE UAC-Abfrage zu starten (nötig, damit das Mystic Light SDK im Autostart funktioniert).
+    /// Null = noch nicht gefragt — die App fragt dann einmal nach, bevor sie die Aufgabe anlegt.
+    /// False = abgelehnt, kein erneutes Nachfragen; Autostart läuft dann ohne Adminrechte (UAC bei jeder
+    /// Anmeldung). Absichtlich kein automatisches "ja", weil ein elevierter Task ohne UAC-Abfrage genau
+    /// das Muster ist, nach dem Antiviren-Heuristik (und wachsame Nutzer) suchen.</summary>
+    public bool? ElevatedAutostartConsent { get; set; }
+
     /// <summary>Alter Schalter aus Version ≤ 0.3.0 — wird beim Laden in <see cref="Backend"/>
     /// übernommen und danach nicht mehr geschrieben.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

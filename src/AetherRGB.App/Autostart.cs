@@ -23,8 +23,12 @@ internal static class Autostart
     private const string TaskName = "AetherRGB";
 
     /// <summary>Bringt Registry/Aufgabenplanung auf den gewünschten Stand und liefert eine Zeile fürs Log
-    /// (Stufe, Text). Darf im Hintergrund laufen — schtasks braucht einige 100 ms.</summary>
-    public static (Core.Diagnostics.LogLevel Level, string Message) Apply(bool enabled, bool needsAdmin, bool isElevated)
+    /// (Stufe, Text). Darf im Hintergrund laufen — schtasks braucht einige 100 ms.
+    /// <paramref name="elevatedTaskConsent"/>: true nur, wenn der Nutzer dem elevierten, UAC-freien
+    /// Autostart-Task ausdrücklich zugestimmt hat (siehe <see cref="Core.Config.MsiMysticLightConfig.ElevatedAutostartConsent"/>).
+    /// Ohne diese Zustimmung wird nie ein solcher Task angelegt, auch wenn das MSI SDK Adminrechte
+    /// bräuchte — dann bleibt es beim normalen, nicht-elevierten Run-Eintrag.</summary>
+    public static (Core.Diagnostics.LogLevel Level, string Message) Apply(bool enabled, bool needsAdmin, bool isElevated, bool elevatedTaskConsent)
     {
         if (Environment.ProcessPath is not { } exe)
             return (Core.Diagnostics.LogLevel.Warning, "Autostart: Pfad der laufenden EXE unbekannt — nichts geändert.");
@@ -39,11 +43,13 @@ internal static class Autostart
             return (Core.Diagnostics.LogLevel.Debug, "Autostart mit Windows: aus.");
         }
 
+        if (!elevatedTaskConsent && TaskExists()) DeleteTask(out _); // Zustimmung zurückgezogen — Task weg
+
         // Eine vorhandene Aufgabe für genau diese EXE startet die App mit Adminrechten — die reicht in
         // jedem Fall, ein zusätzlicher Run-Eintrag würde die App doppelt starten.
-        bool taskOk = TaskPointsTo(exe);
+        bool taskOk = elevatedTaskConsent && TaskPointsTo(exe);
         string? createError = null;
-        if (needsAdmin && isElevated && !taskOk) taskOk = CreateTask(exe, out createError);
+        if (needsAdmin && isElevated && elevatedTaskConsent && !taskOk) taskOk = CreateTask(exe, out createError);
         if (taskOk)
         {
             RemoveRunValue();
@@ -55,7 +61,9 @@ internal static class Autostart
         if (needsAdmin)
             return (Core.Diagnostics.LogLevel.Warning,
                 "Autostart mit Windows: über den Run-Eintrag, aber ohne Administratorrechte — das Mystic Light SDK fragt dann bei jeder Anmeldung nach einem Neustart. " +
-                (createError is not null
+                (!elevatedTaskConsent
+                    ? "Du hast dem UAC-freien Autostart nicht zugestimmt (Einstellungen → MSI Mystic Light)."
+                    : createError is not null
                     ? "Aufgabe mit Adminrechten konnte nicht angelegt werden: " + createError
                     : "Starte AetherRGB einmal als Administrator, dann richtet es den Autostart mit Adminrechten ein."));
         return (Core.Diagnostics.LogLevel.Debug, $"Autostart mit Windows: an (minimiert, {exe}).");

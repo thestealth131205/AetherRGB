@@ -403,6 +403,7 @@ public partial class MainWindow : Window
         MsiSdkRateBox.Text = _config.MsiMysticLight.SdkMaxUpdatesPerSecond.ToString();
         MsiSdkPerLedCheck.IsChecked = _config.MsiMysticLight.SdkPerLed;
         MsiSdkUsedLedsCheck.IsChecked = _config.MsiMysticLight.SdkSendOnlyUsedLeds;
+        MsiElevatedAutostartCheck.IsChecked = _config.MsiMysticLight.ElevatedAutostartConsent == true;
         MsiLedCountBox.Text = _config.MsiMysticLight.LedCountOverride.ToString();
         UpdateMsiPanels();
 
@@ -466,6 +467,7 @@ public partial class MainWindow : Window
             : _config.MsiMysticLight.SdkMaxUpdatesPerSecond;
         _config.MsiMysticLight.SdkPerLed = MsiSdkPerLedCheck.IsChecked == true;
         _config.MsiMysticLight.SdkSendOnlyUsedLeds = MsiSdkUsedLedsCheck.IsChecked == true;
+        _config.MsiMysticLight.ElevatedAutostartConsent = MsiElevatedAutostartCheck.IsChecked == true;
         _config.MsiMysticLight.LedCountOverride = int.TryParse(MsiLedCountBox.Text, out var ledCount) && ledCount > 0 ? ledCount : 1;
 
         _config.HomeAssistant.Enabled = HaEnabledCheck.IsChecked == true;
@@ -887,11 +889,14 @@ public partial class MainWindow : Window
         bool enabled = _config.StartWithWindows;
         bool needsAdmin = _config.MsiMysticLight.Backend == MsiBackend.MysticLightSdk;
         bool elevated = MsiBoardDetector.IsElevated();
+        bool elevatedConsent = enabled && needsAdmin && elevated
+            ? AskElevatedAutostartConsentIfNeeded()
+            : _config.MsiMysticLight.ElevatedAutostartConsent == true;
         _ = Task.Run(() =>
         {
             try
             {
-                var (level, message) = Autostart.Apply(enabled, needsAdmin, elevated);
+                var (level, message) = Autostart.Apply(enabled, needsAdmin, elevated, elevatedConsent);
                 Log(message, level);
             }
             catch (Exception ex)
@@ -899,6 +904,41 @@ public partial class MainWindow : Window
                 Log("Autostart konnte nicht eingerichtet werden: " + ExceptionText.Describe(ex), LogLevel.Warning);
             }
         });
+    }
+
+    /// <summary>Fragt einmalig (nicht bei jedem Start erneut) nach, ob AetherRGB beim Anmelden mit
+    /// Administratorrechten UND OHNE UAC-Abfrage starten darf (nötig, damit das MSI SDK im Autostart
+    /// funktioniert). Genau dieses Muster — ein elevierter Task ohne Sicherheitsabfrage — ist es, was
+    /// Antiviren-Heuristik (und zu Recht misstrauische Nutzer) aufhorchen lässt. Ohne ausdrückliches
+    /// "Ja" bleibt es beim normalen Autostart ohne Adminrechte; das MSI SDK fragt dann bei jeder
+    /// Anmeldung per UAC nach.</summary>
+    private bool AskElevatedAutostartConsentIfNeeded()
+    {
+        if (_config.MsiMysticLight.ElevatedAutostartConsent is bool decided) return decided;
+
+        var answer = MessageBox.Show(this,
+            "AetherRGB soll beim Anmelden automatisch starten, und das Mystic Light SDK braucht dafür " +
+            "Administratorrechte.\n\n" +
+            "Dafür würde AetherRGB eine Aufgabe in der Windows-Aufgabenplanung anlegen, die beim Anmelden " +
+            "MIT Adminrechten startet, OHNE die übliche Sicherheitsabfrage (UAC). Das ist eine offizielle " +
+            "Windows-Funktion, aber genau dieses Muster nutzen auch Schadprogramme — Antivirenprogramme " +
+            "können deshalb misstrauisch reagieren.\n\n" +
+            "Zustimmen: AetherRGB startet im Autostart ohne weitere Abfrage mit Adminrechten.\n" +
+            "Ablehnen: AetherRGB startet im Autostart ohne Adminrechte; das MSI SDK fragt dann bei jeder " +
+            "Anmeldung einmal per UAC nach einem Neustart als Administrator.\n\n" +
+            "Du kannst das jederzeit unter Einstellungen → MSI Mystic Light ändern.\n\n" +
+            "Jetzt zustimmen?",
+            "Autostart mit Adminrechten ohne UAC-Abfrage?",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+
+        bool consent = answer == MessageBoxResult.Yes;
+        _config.MsiMysticLight.ElevatedAutostartConsent = consent;
+        _config.Save();
+        Log(consent
+            ? "Autostart: UAC-freiem Start mit Adminrechten zugestimmt."
+            : "Autostart: UAC-freier Start mit Adminrechten abgelehnt — läuft ohne Adminrechte, MSI SDK fragt bei jeder Anmeldung per UAC nach.",
+            LogLevel.Info);
+        return consent;
     }
 
     private MsiBackend SelectedMsiBackend() =>
