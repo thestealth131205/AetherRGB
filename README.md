@@ -33,6 +33,11 @@ auf einem Standbild des Spiels einzeichnen, mit Live-Auswertung und Vorschau der
 
 ![Bildschirm-Sync: Bereichs-Editor](docs/screenshots/bildschirm-sync-bereiche.png)
 
+**Sensor-Panel-Editor**: Systemwerte (CPU, GPU, RAM, Laufwerke, Netzwerk, AIDA64) per Drag & Drop
+auf eine Fläche legen, für ein sekundäres USB-Display wie das 5"-Panel von LCD Wiki.
+
+![Sensor-Panel-Editor: Systemübersicht](docs/screenshots/sensor-panel-editor.png)
+
 ## Kernprinzipien
 
 - **Keine Cloud.** Keine Server-Kommunikation nach außen — alles läuft lokal auf dem PC. Die
