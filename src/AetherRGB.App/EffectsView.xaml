@@ -115,6 +115,9 @@
                     <TextBlock Grid.Row="0" Grid.Column="6" Text="Layout-Helligkeit" Style="{StaticResource FieldLabel}" />
                     <TextBox x:Name="FieldLayoutBrightness" Grid.Row="0" Grid.Column="7" Style="{StaticResource FieldBox}" />
                 </Grid>
+
+                <!-- Spiel-Anzeige: Bereiche eines Bildschirm-Profils dem gewählten Gerät zuweisen (BuildGamePanel) -->
+                <StackPanel x:Name="GamePanel" Margin="0,12,0,0" Visibility="Collapsed" />
             </StackPanel>
         </Grid>
 

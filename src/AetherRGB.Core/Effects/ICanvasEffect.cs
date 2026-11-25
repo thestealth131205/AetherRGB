@@ -18,6 +18,16 @@ public interface ICanvasEffect
     RgbColor Sample(double x, double y, double canvasWidth, double canvasHeight, TimeSpan elapsed);
 }
 
+/// <summary>Effekt, der einzelnen Geräten statt der Farbe unter ihren LEDs etwas Eigenes zeigen kann — z. B. den
+/// Lebensbalken eines Spiels als Füllstand über die LEDs eines Strips (<see cref="Screen.ScreenGauge"/>).</summary>
+public interface IDeviceAwareCanvasEffect : ICanvasEffect
+{
+    /// <summary>Wird nach dem normalen Sampeln aufgerufen: <paramref name="colors"/> enthält die Farben der Fläche an
+    /// den LED-Positionen (eine pro LED der Form, Reihenfolge = LED-Reihenfolge, noch ohne Helligkeit) und darf
+    /// ganz oder teilweise überschrieben werden. Läuft im Engine-Thread, im Sende-Thread eines Providers und in der UI.</summary>
+    void ApplyToDevice(Layout.DeviceLayoutItem item, RgbColor[] colors, TimeSpan elapsed);
+}
+
 public sealed class CanvasStaticColorEffect : ICanvasEffect
 {
     private readonly RgbColor _color;

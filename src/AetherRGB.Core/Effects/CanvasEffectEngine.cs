@@ -119,11 +119,16 @@ public sealed class CanvasEffectEngine : IDisposable
         double brightness = Math.Clamp(scene.Brightness, 0, 100) / 100.0 * Math.Clamp(item.Brightness, 0, 100) / 100.0;
         var effect = scene.Effect;
         var effectTime = scene.GetEffectTime(elapsed);
+        var sampled = new RgbColor[positions.Count];
         for (int i = 0; i < positions.Count; i++)
         {
             var (x, y) = positions[i];
-            colors[i] = Scale(effect.Sample(x, y, scene.CanvasWidth, scene.CanvasHeight, effectTime), brightness);
+            sampled[i] = effect.Sample(x, y, scene.CanvasWidth, scene.CanvasHeight, effectTime);
         }
+        // Spiel-Anzeige: Gerät mit zugewiesenen Bereichen zeigt z. B. den Lebensbalken über seine LEDs.
+        if (effect is IDeviceAwareCanvasEffect deviceAware && item.ScreenRegions.Count > 0)
+            deviceAware.ApplyToDevice(item, sampled, effectTime);
+        for (int i = 0; i < sampled.Length; i++) colors[i] = Scale(sampled[i], brightness);
         return colors;
     }
 

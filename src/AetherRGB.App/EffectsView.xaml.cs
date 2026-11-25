@@ -10,6 +10,7 @@ using AetherRGB.Core.Diagnostics;
 using AetherRGB.Core.Effects;
 using AetherRGB.Core.Effects.Custom;
 using AetherRGB.Core.Layout;
+using AetherRGB.Core.Screen;
 using AetherRGB.Providers.Wled;
 using Forms = System.Windows.Forms;
 
@@ -434,7 +435,9 @@ public partial class EffectsView : UserControl
 
         if (descriptor.IsAnimated) AddSpeedControl(scene, descriptor);
 
-        if (descriptor.Id.StartsWith("screen-", StringComparison.Ordinal))
+        BuildGamePanel();
+
+        if (descriptor.Id.StartsWith("screen-", StringComparison.Ordinal) || CanvasGameProfileEffect.ProfileIdOf(descriptor.Id) is not null)
         {
             var regions = new Button { Content = "🖥  Bildschirm-Sync …", ToolTip = "Monitor, Spiel-Profile und Bereiche (Leben, Sturm, Schaden …) einstellen" };
             regions.Click += (_, _) => OpenScreenSync?.Invoke();
@@ -629,6 +632,166 @@ public partial class EffectsView : UserControl
         FieldDeviceBrightness.Text = item is null ? "-" : item.Brightness.ToString();
         FieldLayoutBrightness.Text = _scene?.Brightness.ToString() ?? "100";
         _suppressUiEvents = false;
+        BuildGamePanel();
+    }
+
+    // ===================== Spiel-Anzeige auf dem gewählten Gerät =====================
+
+    /// <summary>Profil des Effekts im aktuellen Fenster, wenn es ein Spiel-Effekt ist („Spiel: …“ oder
+    /// „Bildschirm – Spiel-Profil“ mit dem gerade aktiven Profil).</summary>
+    private ScreenProfile? GameProfileOfScene()
+    {
+        if (_scene is null) return null;
+        if (CanvasGameProfileEffect.ProfileIdOf(_scene.EffectId) is { } id) return ScreenHub.Shared.FindProfile(id);
+        return _scene.EffectId == "screen-profile" ? ScreenHub.Shared.CurrentProfile : null;
+    }
+
+    private static bool IsGameEffect(string effectId) =>
+        effectId == "screen-profile" || CanvasGameProfileEffect.ProfileIdOf(effectId) is not null;
+
+    /// <summary>Unter den Feldern des gewählten Geräts: welche Bereiche des Spiel-Profils es zeigt. Hauptanzeige
+    /// (Leben, Schild, Sturm …) als Füllstand über die LEDs, dazu Bereiche, die sie nur überdecken, solange sie
+    /// kritisch sind — z. B. Leben auf dem Strip, der nur bei sehr nahem Sturm lila blinkt.</summary>
+    private void BuildGamePanel()
+    {
+        UpdateGameCaptions();
+        GamePanel.Children.Clear();
+        if (_scene is null || !IsGameEffect(_scene.EffectId))
+        {
+            GamePanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+        GamePanel.Visibility = Visibility.Visible;
+        var muted = (Style)FindResource("MutedText");
+        GamePanel.Children.Add(new TextBlock { Text = "Spiel-Anzeige auf diesem Gerät", FontWeight = FontWeights.SemiBold, FontSize = 15 });
+
+        var profile = GameProfileOfScene();
+        if (profile is null)
+        {
+            GamePanel.Children.Add(new TextBlock
+            {
+                Text = "Gerade ist kein Spiel-Profil aktiv. Wähle oben ein Profil als „Spiel: …“ oder lege eines im Bildschirm-Sync an.",
+                Style = muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+            });
+            return;
+        }
+        if (_selected?.Item is not { } item)
+        {
+            int assigned = _scene.Items.Count(i => i.ScreenRegions.Count > 0);
+            GamePanel.Children.Add(new TextBlock
+            {
+                Text = $"Gerät auf der Fläche anklicken und ihm einen Bereich aus „{profile.Name}“ zuweisen (Leben, Schild, Sturm-Abstand, Schaden …). " +
+                       $"Der Wert erscheint dann direkt auf seinen LEDs, z. B. volles Leben = alle LEDs grün. " +
+                       (assigned == 0 ? "Noch kein Gerät zugewiesen — alle zeigen die Effekt-Fläche." : $"{assigned} Gerät(e) zugewiesen."),
+                Style = muted, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+            });
+            return;
+        }
+
+        int leds = item.ComputeLedPositions(_shapes.Get(item.DeviceId, item.ZoneIndex, item.LedCount)).Count;
+        var regions = profile.Regions.Where(r => r.Enabled && r.CanShowOnDevice).ToList();
+        string main = item.ScreenRegions.Count > 0 ? item.ScreenRegions[0] : "";
+        var overlays = item.ScreenRegions.Skip(1).ToList();
+
+        string Describe(ScreenRegion r) =>
+            r.Rule switch
+            {
+                RegionRule.ColorFlash or RegionRule.ValueDrop => "Blitz über alle LEDs",
+                RegionRule.Average => "Mischfarbe auf allen LEDs",
+                _ when !r.IsGauge => "Stufenfarbe auf allen LEDs",
+                _ when r.DeviceFill == DeviceFill.Inverse => "Füllstand, je näher desto mehr LEDs",
+                _ => "Füllstand über die LEDs",
+            };
+
+        var grid = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var mainLabel = new TextBlock { Text = "Hauptanzeige", Style = muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+        grid.Children.Add(mainLabel);
+        var combo = new ComboBox { MinWidth = 320, HorizontalAlignment = HorizontalAlignment.Left };
+        combo.Items.Add(new ComboBoxItem { Content = "Effekt-Fläche (Ebenen des Profils)", Tag = "" });
+        foreach (var r in regions)
+        {
+            bool ok = ScreenGauge.CanAssign(r, leds);
+            combo.Items.Add(new ComboBoxItem
+            {
+                Content = ok ? $"{r.Name} — {Describe(r)}" : $"{r.Name} — braucht mindestens {ScreenRegion.MinGaugeLeds} LEDs",
+                Tag = r.Id, IsEnabled = ok,
+            });
+        }
+        combo.SelectedItem = combo.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == main) ?? combo.Items[0];
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedItem is ComboBoxItem { Tag: string id }) SetGameAssignment(item, id, overlays.Where(o => o != id).ToList(), profile);
+        };
+        Grid.SetColumn(combo, 1);
+        grid.Children.Add(combo);
+
+        var overlayLabel = new TextBlock { Text = "Überdecken, wenn kritisch", Style = muted, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 8, 12, 0) };
+        Grid.SetRow(overlayLabel, 1);
+        grid.Children.Add(overlayLabel);
+        var overlayPanel = new WrapPanel { Margin = new Thickness(0, 6, 0, 0) };
+        foreach (var r in regions.Where(r => r.Id != main))
+        {
+            bool ok = ScreenGauge.CanAssign(r, leds);
+            var box = new CheckBox
+            {
+                Content = r.Name, IsChecked = overlays.Contains(r.Id), IsEnabled = ok, Margin = new Thickness(0, 2, 16, 2),
+                Foreground = (Brush)FindResource("BrushText"),
+                ToolTip = ok ? (r.Rule is RegionRule.ColorFlash or RegionRule.ValueDrop
+                                ? "Blitzt über die Hauptanzeige, solange der Blitz läuft."
+                                : "Übernimmt das ganze Gerät nur, solange eine blinkende Stufe erreicht ist (z. B. Sturm ganz nah).")
+                             : $"Füllstände brauchen mindestens {ScreenRegion.MinGaugeLeds} LEDs.",
+            };
+            string id = r.Id;
+            box.Checked += (_, _) => { if (!overlays.Contains(id)) overlays.Add(id); SetGameAssignment(item, main, overlays, profile); };
+            box.Unchecked += (_, _) => { overlays.Remove(id); SetGameAssignment(item, main, overlays, profile); };
+            overlayPanel.Children.Add(box);
+        }
+        Grid.SetRow(overlayPanel, 1);
+        Grid.SetColumn(overlayPanel, 1);
+        grid.Children.Add(overlayPanel);
+        GamePanel.Children.Add(grid);
+
+        GamePanel.Children.Add(new TextBlock
+        {
+            Text = $"{leds} LEDs laut LED-Anordnung. Farbstufen und Blinken stellst du im Bildschirm-Sync beim jeweiligen Bereich ein. " +
+                   "Hat jeder Bereich sein eigenes Gerät, braucht es kein Überdecken.",
+            Style = muted, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
+        });
+    }
+
+    /// <summary>Kopfzeilen der Geräte auf der Fläche: bei Spiel-Effekten die zugewiesenen Bereiche dazuschreiben.</summary>
+    private void UpdateGameCaptions()
+    {
+        var profile = _scene is not null && IsGameEffect(_scene.EffectId) ? GameProfileOfScene() : null;
+        foreach (var visual in _visuals)
+        {
+            var ids = visual.Item.ScreenRegions;
+            if (profile is null || ids.Count == 0) { visual.SetCaption(null); continue; }
+            string Name(string id) => id.Length == 0 ? "Fläche" : profile.Regions.FirstOrDefault(r => r.Id == id)?.Name ?? "?";
+            visual.SetCaption(Name(ids[0]) + (ids.Count > 1 ? " + " + string.Join(", ", ids.Skip(1).Select(Name)) + " (kritisch)" : ""));
+        }
+    }
+
+    private void SetGameAssignment(DeviceLayoutItem item, string main, List<string> overlays, ScreenProfile profile)
+    {
+        var list = new List<string> { main };
+        list.AddRange(overlays.Where(o => o != main).Distinct());
+        // Neue Liste statt Ändern der alten: Engine- und Sende-Thread lesen sie gleichzeitig.
+        item.ScreenRegions = list.Count == 1 && main.Length == 0 ? new List<string>() : list;
+        SaveScenes();
+        RenderPreview();
+        string Name(string id) => profile.Regions.FirstOrDefault(r => r.Id == id)?.Name ?? id;
+        LogMessage?.Invoke(item.ScreenRegions.Count == 0
+            ? $"'{item.DisplayName}': zeigt die Effekt-Fläche."
+            : $"'{item.DisplayName}': zeigt {(main.Length == 0 ? "die Effekt-Fläche" : "„" + Name(main) + "“")}" +
+              (overlays.Count > 0 ? ", überdeckt bei kritischem " + string.Join(", ", overlays.Select(o => "„" + Name(o) + "“")) : "") + ".", LogLevel.Info);
+        // Nicht innerhalb des SelectionChanged/Checked-Ereignisses das auslösende Element entfernen.
+        Dispatcher.BeginInvoke(BuildGamePanel);
     }
 
     private static string Fmt(double v) => Math.Round(v).ToString(CultureInfo.InvariantCulture);

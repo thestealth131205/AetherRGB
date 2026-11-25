@@ -56,8 +56,15 @@ public sealed class ScreenSyncConfig
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public ScreenCaptureMethod Method { get; set; } = ScreenCaptureMethod.Auto;
 
-    /// <summary>Höchstens so viele Bilder pro Sekunde aufnehmen und auswerten.</summary>
-    public int MaxFps { get; set; } = 30;
+    /// <summary>Höchstens so viele Bilder pro Sekunde aufnehmen und auswerten. 15 reicht für Leben, Sturm und Schaden
+    /// und kostet etwa halb so viel CPU wie 30.</summary>
+    public int MaxFps { get; set; } = 15;
+
+    /// <summary>Sättigung der gemessenen Mischfarben in Prozent (100 = wie auf dem Bildschirm). Gemittelte Farben sind
+    /// blass, auf LEDs wirken sie mit mehr Sättigung wie das Bild.</summary>
+    public int SaturationPercent { get; set; } = 160;
+
+    public const int MinSaturationPercent = 100, MaxSaturationPercent = 300;
 
     /// <summary>Profil, wenn kein Spiel mit eigenem Profil im Vordergrund läuft.</summary>
     public string DefaultProfileId { get; set; } = "fortnite";
@@ -167,7 +174,7 @@ public sealed class AppConfig
     /// <summary>Stand der Konfigurationsdatei für einmalige Umstellungen beim Laden. Fehlt in Dateien bis
     /// 0.3.5 (= 0); neue Konfigurationen und gespeicherte Dateien tragen <see cref="CurrentConfigVersion"/>.</summary>
     public int ConfigVersion { get; set; }
-    public const int CurrentConfigVersion = 1;
+    public const int CurrentConfigVersion = 2;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -196,6 +203,11 @@ public sealed class AppConfig
                     // einen bewusst anders gewählten Wert behalten.
                     if (loaded.ConfigVersion < 1 && loaded.MsiMysticLight.SdkMaxUpdatesPerSecond == 15)
                         loaded.MsiMysticLight.SdkMaxUpdatesPerSecond = 10;
+                    // 0.3.12: Bildschirm-Sync-Standard von 30 auf 15 Bilder/s (CPU sparen). Nur den alten Standardwert umstellen.
+                    if (loaded.ConfigVersion < 2 && loaded.ScreenSync.MaxFps == 30)
+                        loaded.ScreenSync.MaxFps = 15;
+                    loaded.ScreenSync.SaturationPercent = Math.Clamp(loaded.ScreenSync.SaturationPercent,
+                        ScreenSyncConfig.MinSaturationPercent, ScreenSyncConfig.MaxSaturationPercent);
                     loaded.ConfigVersion = CurrentConfigVersion;
                     return loaded;
                 }

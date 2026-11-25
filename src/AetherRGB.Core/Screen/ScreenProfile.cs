@@ -19,9 +19,38 @@ public enum RegionRule
     ValueDrop,
     /// <summary>Kein Licht, nur Prüfung: Ist das Spiel-HUD zu sehen? Sonst pausieren die Regeln.</summary>
     HudCheck,
+    /// <summary>Abstand von der Mitte des Bereichs zur nächsten Stelle in einer der Farben, 0 = Farbe in der Mitte,
+    /// 1 = keine Farbe in der Nähe — z. B. Sturm in der Minimap (die Spielfigur steht immer in der Mitte).</summary>
+    ColorDistance,
 }
 
 public enum BarDirection { LeftToRight, RightToLeft, BottomToTop, TopToBottom }
+
+/// <summary>Wie viele LEDs eines zugewiesenen Geräts leuchten.</summary>
+public enum DeviceFill
+{
+    /// <summary>Anteil der LEDs = Wert (voller Lebensbalken = alle LEDs).</summary>
+    Value,
+    /// <summary>Anteil der LEDs = 1 − Wert (Sturm-Abstand: je näher der Sturm, desto mehr LEDs).</summary>
+    Inverse,
+    /// <summary>Immer alle LEDs, nur die Farbe der Stufe zählt.</summary>
+    All,
+}
+
+/// <summary>Farbstufe für die Anzeige auf einem Gerät: gilt, solange der Wert höchstens <see cref="UpTo"/> ist.
+/// Von allen passenden Stufen gilt die mit dem kleinsten <see cref="UpTo"/> — z. B. Leben ≤ 100 % grün,
+/// ≤ 50 % gelb, ≤ 30 % orange, ≤ 15 % rot blinkend.</summary>
+public sealed record GaugeStep
+{
+    public double UpTo { get; init; } = 1;
+    public RgbColor Color { get; init; } = new(0, 255, 0);
+    /// <summary>Blinken — gilt zugleich als „kritisch“: dann überdeckt der Bereich auf einem Gerät mit mehreren
+    /// Bereichen die Hauptanzeige.</summary>
+    public bool Blink { get; init; }
+
+    public GaugeStep() { }
+    public GaugeStep(double upTo, RgbColor color, bool blink = false) { UpTo = upTo; Color = color; Blink = blink; }
+}
 
 /// <summary>Wie ein Wert auf den LEDs erscheint.</summary>
 public enum LayerDisplay
@@ -107,6 +136,32 @@ public sealed class ScreenRegion
     /// <summary>Blitzdauer in Millisekunden (ColorFlash, ValueDrop).</summary>
     public int FlashMs { get; set; } = 450;
 
+    // ---- Anzeige auf zugewiesenen Geräten (Effekt „Spiel: …“, Gerät im Effekt-Fenster zugewiesen) ----
+
+    /// <summary>Farbstufen auf dem Gerät. Leer = Farbskala <see cref="ColorLow"/> → <see cref="ColorHigh"/>, Blinken
+    /// unter <see cref="PulseBelow"/>.</summary>
+    public List<GaugeStep> Steps { get; set; } = new();
+
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public DeviceFill DeviceFill { get; set; } = DeviceFill.Value;
+
+    /// <summary>Blinkfrequenz kritischer Stufen in Hz.</summary>
+    public double BlinkHz { get; set; } = 2.5;
+
+    /// <summary>ColorDistance: so weit (relativ zur halben Breite/Höhe des Bereichs) zählt eine Farbe noch als „nah“;
+    /// weiter weg ergibt Wert 1.</summary>
+    public double Range { get; set; } = 1.0;
+
+    /// <summary>Kann auf einem Gerät angezeigt werden (HudCheck nicht).</summary>
+    [JsonIgnore]
+    public bool CanShowOnDevice => Rule != RegionRule.HudCheck;
+
+    /// <summary>Anzeige als Füllstand über die LEDs — braucht dafür mindestens <see cref="MinGaugeLeds"/> LEDs.</summary>
+    [JsonIgnore]
+    public bool IsGauge => (Rule is RegionRule.BarFill or RegionRule.ColorShare or RegionRule.ColorDistance) && DeviceFill != DeviceFill.All;
+
+    public const int MinGaugeLeds = 4;
+
     /// <summary>Erzeugt die Ebene ein Licht? HudCheck nicht.</summary>
     [JsonIgnore]
     public bool HasLayer => Rule != RegionRule.HudCheck;
@@ -131,6 +186,14 @@ public sealed class ScreenProfile
 
     /// <summary>Ebenen von unten nach oben.</summary>
     public List<ScreenRegion> Regions { get; set; } = new();
+
+    /// <summary>Aus einer mitgelieferten Vorlage angelegt: deren Stand. Neuere Vorlagen ergänzen beim Laden fehlende
+    /// Bereiche und Farbstufen, ohne Geändertes zu überschreiben (<see cref="ScreenProfileTemplates.Upgrade"/>).</summary>
+    public int TemplateVersion { get; set; }
+
+    /// <summary>ID der Vorlage, aus der das Profil stammt (bleibt bei „Kopie“ erhalten). Fehlt in Dateien bis 0.3.11 —
+    /// dann gilt ein Profil mit der ID einer Vorlage als deren Abkömmling.</summary>
+    public string TemplateId { get; set; } = "";
 
     public ScreenProfile Clone() => ScreenProfileSerializer.Clone(this);
 }
@@ -160,6 +223,7 @@ public static class ScreenProfileSerializer
         profile.Id = string.IsNullOrWhiteSpace(profile.Id) ? Guid.NewGuid().ToString("N")[..12] : SafeId(profile.Id);
         profile.Name = string.IsNullOrWhiteSpace(profile.Name) ? "Profil" : profile.Name.Trim()[..Math.Min(80, profile.Name.Trim().Length)];
         profile.ProcessName = (profile.ProcessName ?? "").Trim();
+        profile.TemplateId ??= "";
         if (profile.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) profile.ProcessName = profile.ProcessName[..^4];
         profile.Regions ??= new();
         if (profile.Regions.Count > MaxRegions) profile.Regions = profile.Regions.Take(MaxRegions).ToList();
@@ -182,6 +246,13 @@ public static class ScreenProfileSerializer
             r.Opacity = Math.Clamp(r.Opacity, 0, 1);
             r.PulseBelow = Math.Clamp(r.PulseBelow, 0, 1);
             r.FlashMs = Math.Clamp(r.FlashMs, 50, 5000);
+            r.Steps ??= new();
+            r.Steps.RemoveAll(st => st is null);
+            if (r.Steps.Count > 12) r.Steps = r.Steps.Take(12).ToList();
+            r.Steps = r.Steps.Select(st => st with { UpTo = Math.Clamp(double.IsFinite(st.UpTo) ? st.UpTo : 1, 0, 1) }).ToList();
+            r.BlinkHz = Math.Clamp(double.IsFinite(r.BlinkHz) ? r.BlinkHz : 2.5, 0.2, 10);
+            r.Range = Math.Clamp(double.IsFinite(r.Range) ? r.Range : 1, 0.05, 1.5);
+            if (!Enum.IsDefined(r.DeviceFill)) r.DeviceFill = DeviceFill.Value;
         }
         foreach (var r in profile.Regions) r.Sources.RemoveAll(s => s == r.Id || !ids.Contains(s));
     }

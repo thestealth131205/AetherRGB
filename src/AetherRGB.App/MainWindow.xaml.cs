@@ -615,7 +615,13 @@ public partial class MainWindow : Window
         _screenStatusTimer.Start();
     }
 
-    private void ApplyScreenProfiles() => ScreenHub.Shared.SetProfiles(_screenProfiles.Profiles, _config.ScreenSync.DefaultProfileId);
+    private void ApplyScreenProfiles()
+    {
+        ScreenHub.Shared.Saturation = _config.ScreenSync.SaturationPercent / 100.0;
+        ScreenHub.Shared.SetProfiles(_screenProfiles.Profiles, _config.ScreenSync.DefaultProfileId);
+        // Jedes Profil erscheint als Effekt „Spiel: …“ im Effekt-Fenster.
+        CanvasGameProfileEffect.PublishToCatalog(_screenProfiles.Profiles);
+    }
 
     private const string ScreenAutoMonitor = "Automatisch (Monitor mit dem Spiel im Vordergrund)";
 
@@ -635,6 +641,7 @@ public partial class MainWindow : Window
         ScreenMonitorCombo.SelectedItem = configured ?? (object)ScreenAutoMonitor;
         ScreenMethodCombo.SelectedIndex = (int)_config.ScreenSync.Method;
         ScreenFpsBox.Text = _config.ScreenSync.MaxFps.ToString();
+        ScreenSaturationBox.Text = _config.ScreenSync.SaturationPercent.ToString();
         ReloadScreenProfileCombo();
         ScreenStatusText.Text = ScreenHub.Shared.Status;
     }
@@ -653,6 +660,10 @@ public partial class MainWindow : Window
         _config.ScreenSync.Monitor = ScreenMonitorCombo.SelectedItem is MonitorInfo m ? m.DeviceName : "";
         _config.ScreenSync.Method = ScreenMethodCombo.SelectedIndex >= 0 ? (ScreenCaptureMethod)ScreenMethodCombo.SelectedIndex : ScreenCaptureMethod.Auto;
         _config.ScreenSync.MaxFps = int.TryParse(ScreenFpsBox.Text, out var fps) ? Math.Clamp(fps, 5, 60) : _config.ScreenSync.MaxFps;
+        _config.ScreenSync.SaturationPercent = int.TryParse(ScreenSaturationBox.Text, out var sat)
+            ? Math.Clamp(sat, ScreenSyncConfig.MinSaturationPercent, ScreenSyncConfig.MaxSaturationPercent)
+            : _config.ScreenSync.SaturationPercent;
+        ScreenHub.Shared.Saturation = _config.ScreenSync.SaturationPercent / 100.0;
         _config.ScreenSync.DefaultProfileId = (ScreenProfileCombo.SelectedItem as ScreenProfile)?.Id ?? "";
     }
 

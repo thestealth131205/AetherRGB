@@ -53,8 +53,11 @@ public static class EffectCatalog
     };
 
     private static volatile IReadOnlyList<EffectDescriptor> _all = BuiltIn;
+    private static readonly object _lock = new();
+    private static IReadOnlyList<EffectDescriptor> _custom = Array.Empty<EffectDescriptor>();
+    private static IReadOnlyList<EffectDescriptor> _screenProfiles = Array.Empty<EffectDescriptor>();
 
-    /// <summary>Eingebaute Effekte, danach die eigenen alphabetisch.</summary>
+    /// <summary>Eingebaute Effekte, danach die Spiel-Profile des Bildschirm-Syncs, danach die eigenen alphabetisch.</summary>
     public static IReadOnlyList<EffectDescriptor> All => _all;
 
     /// <summary>Die Liste hat sich geändert (eigener Effekt gespeichert, importiert, gelöscht). Kann von
@@ -65,7 +68,22 @@ public static class EffectCatalog
     /// beim nächsten Bild eine neue Instanz (neuer Descriptor).</summary>
     public static void SetCustomEffects(IEnumerable<EffectDescriptor> custom)
     {
-        _all = BuiltIn.Concat(custom.OrderBy(e => e.Name, StringComparer.CurrentCultureIgnoreCase)).ToArray();
+        lock (_lock)
+        {
+            _custom = custom.OrderBy(e => e.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+            _all = BuiltIn.Concat(_screenProfiles).Concat(_custom).ToArray();
+        }
+        Changed?.Invoke();
+    }
+
+    /// <summary>Ersetzt die Effekte „Spiel: …“ (ein Eintrag pro Bildschirm-Profil, IDs <c>game:…</c>).</summary>
+    public static void SetScreenProfileEffects(IEnumerable<EffectDescriptor> profiles)
+    {
+        lock (_lock)
+        {
+            _screenProfiles = profiles.ToArray();
+            _all = BuiltIn.Concat(_screenProfiles).Concat(_custom).ToArray();
+        }
         Changed?.Invoke();
     }
 

@@ -43,6 +43,11 @@ public sealed class ScreenProfileStore
             {
                 if (new FileInfo(path).Length > MaxFileBytes) throw new InvalidDataException("Datei größer als 1 MB.");
                 var profile = ScreenProfileSerializer.Deserialize(File.ReadAllText(path));
+                if (ScreenProfileTemplates.Upgrade(profile) is { } note)
+                {
+                    WriteFile(profile);
+                    Log?.Invoke(LogLevel.Info, $"Bildschirm-Profil „{profile.Name}“ auf den neuen Stand der Vorlage gebracht: {note}");
+                }
                 if (loaded.Any(p => p.Id == profile.Id))
                 {
                     Log?.Invoke(LogLevel.Warning, $"Bildschirm-Profil {Path.GetFileName(path)}: ID {profile.Id} doppelt — übersprungen.");
@@ -107,6 +112,49 @@ public static class ScreenProfileTemplates
 
     public static ScreenProfile? Get(string id) => All.Select(t => t()).FirstOrDefault(p => p.Id == id);
 
+    /// <summary>Stand der mitgelieferten Vorlagen. 2 = Farbstufen für die Anzeige auf Geräten, Sturm-Abstand.</summary>
+    public const int CurrentVersion = 2;
+
+    /// <summary>Bringt ein aus einer Vorlage entstandenes Profil auf deren aktuellen Stand: fehlende Bereiche kommen
+    /// dazu, Bereiche ohne Farbstufen bekommen die der Vorlage, der alte Sturm-„Farbanteil“ wird zum Sturm-Abstand.
+    /// Verschobene Bereiche, eigene Farben und Schwellen bleiben, wie sie sind. Rückgabe: was geändert wurde, sonst null.</summary>
+    public static string? Upgrade(ScreenProfile profile)
+    {
+        var templateId = profile.TemplateId.Length > 0 ? profile.TemplateId : profile.Id;
+        var template = Get(templateId);
+        if (template is null || profile.TemplateVersion >= template.TemplateVersion) return null;
+
+        var changes = new List<string>();
+        for (int i = 0; i < template.Regions.Count; i++)
+        {
+            var t = template.Regions[i];
+            var existing = profile.Regions.FirstOrDefault(r => r.Id == t.Id);
+            if (existing is null)
+            {
+                profile.Regions.Insert(Math.Min(i, profile.Regions.Count), t.Clone());
+                changes.Add($"Bereich „{t.Name}“ neu");
+                continue;
+            }
+            if (t.Rule == RegionRule.ColorDistance && existing.Rule == RegionRule.ColorShare)
+            {
+                existing.Rule = RegionRule.ColorDistance;
+                existing.Range = t.Range;
+                if (existing.Name == "Sturm (Minimap)") existing.Name = t.Name;
+                changes.Add($"„{existing.Name}“ misst jetzt den Abstand zum Sturm");
+            }
+            if (existing.Steps.Count == 0 && t.Steps.Count > 0)
+            {
+                existing.Steps = t.Steps.ToList();
+                existing.DeviceFill = t.DeviceFill;
+                existing.BlinkHz = t.BlinkHz;
+                changes.Add($"Farbstufen für „{existing.Name}“");
+            }
+        }
+        profile.TemplateId = template.TemplateId;
+        profile.TemplateVersion = template.TemplateVersion;
+        return changes.Count == 0 ? "keine Änderung an den Bereichen." : string.Join(", ", changes) + ".";
+    }
+
     // Pixelkoordinaten aus dem Screenshot (1920 × 1080) → relativ.
     private static RelRect Px(double x0, double y0, double x1, double y1) => RelRect.FromPixels(x0, y0, x1, y1, 1920, 1080);
 
@@ -118,6 +166,8 @@ public static class ScreenProfileTemplates
     public static ScreenProfile Fortnite() => new()
     {
         Id = FortniteId,
+        TemplateId = FortniteId,
+        TemplateVersion = CurrentVersion,
         Name = "Fortnite (Vorlage)",
         ProcessName = "FortniteClient-Win64-Shipping",
         WhenHudHidden = HudHiddenMode.ScreenAverage,
@@ -135,18 +185,41 @@ public static class ScreenProfileTemplates
                 Colors = { HealthGreen }, SmoothingMs = 150,
                 ColorLow = new RgbColor(255, 0, 0), ColorMid = new RgbColor(255, 170, 0), ColorHigh = new RgbColor(0, 255, 40),
                 PulseBelow = 0.25,
+                // Auf einem Gerät: Füllstand über die LEDs, Farbe nach Stufe.
+                Steps =
+                {
+                    new GaugeStep(1.00, new RgbColor(0, 255, 40)),
+                    new GaugeStep(0.50, new RgbColor(255, 210, 0)),
+                    new GaugeStep(0.30, new RgbColor(255, 100, 0)),
+                    new GaugeStep(0.15, new RgbColor(255, 0, 0), blink: true),
+                },
             },
             new ScreenRegion
             {
                 Id = "shield", Name = "Schild", Rule = RegionRule.BarFill, Area = Px(57, 982, 280, 992),
                 Colors = { ShieldBlue }, SmoothingMs = 150,
                 ColorLow = RgbColor.Black, ColorHigh = new RgbColor(0, 140, 255), ValueAsOpacity = true, Opacity = 0.45,
+                Steps =
+                {
+                    new GaugeStep(1.00, new RgbColor(0, 120, 255)),
+                    new GaugeStep(0.50, new RgbColor(0, 190, 255)),
+                    new GaugeStep(0.30, new RgbColor(0, 255, 230)),
+                },
             },
             new ScreenRegion
             {
-                Id = "storm", Name = "Sturm (Minimap)", Rule = RegionRule.ColorShare, Area = Px(1733, 24, 1895, 186),
-                Colors = { StormPurple }, FullAt = 0.5, MinShare = 0.03, SmoothingMs = 400,
+                // Die Spielfigur steht in der Fortnite-Minimap immer in der Mitte: Abstand Mitte → nächste Sturmfläche bzw.
+                // pink-rote Sturmgrenze. 1 = kein Sturm auf der Minimap, 0 = mitten im Sturm.
+                Id = "storm", Name = "Sturm-Abstand (Minimap)", Rule = RegionRule.ColorDistance, Area = Px(1733, 24, 1895, 186),
+                Colors = { StormPurple }, FullAt = 0.5, MinShare = 0.03, SmoothingMs = 400, Range = 1.0,
                 ColorHigh = new RgbColor(176, 38, 255), Opacity = 0.9,
+                DeviceFill = DeviceFill.Inverse, BlinkHz = 3,
+                Steps =
+                {
+                    new GaugeStep(1.00, new RgbColor(110, 20, 255)),
+                    new GaugeStep(0.50, new RgbColor(176, 38, 255)),
+                    new GaugeStep(0.25, new RgbColor(255, 0, 200), blink: true),
+                },
             },
             new ScreenRegion
             {

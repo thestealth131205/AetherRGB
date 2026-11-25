@@ -74,7 +74,7 @@ public sealed class DeviceVisual
             VerticalAlignment = VerticalAlignment.Top,
             Margin = new Thickness(0, -HeaderHeight, 0, 0),
             Cursor = Cursors.SizeAll,
-            Child = new TextBlock
+            Child = _caption = new TextBlock
             {
                 Text = item.DisplayName,
                 Foreground = new SolidColorBrush(Color.FromRgb(0xC8, 0xCC, 0xD8)),
@@ -192,6 +192,11 @@ public sealed class DeviceVisual
 
     /// <summary>Färbt die LED-Kacheln mit den Farben, die gerade an die LEDs gesendet werden
     /// (LED i = colors[i]); <paramref name="factor"/> dimmt nur die Anzeige (pausierte Fenster).</summary>
+    private readonly TextBlock _caption;
+
+    /// <summary>Kopfzeile: Gerätename, optional mit Zusatz (z. B. die zugewiesene Spiel-Anzeige „Leben“).</summary>
+    public void SetCaption(string? suffix) => _caption.Text = string.IsNullOrEmpty(suffix) ? Item.DisplayName : $"{Item.DisplayName}  ·  {suffix}";
+
     public void SetLedColors(IReadOnlyList<AetherRGB.Core.Devices.RgbColor> colors, double factor)
     {
         for (int i = 0; i < _ledBrushes.Count && i < colors.Count; i++)

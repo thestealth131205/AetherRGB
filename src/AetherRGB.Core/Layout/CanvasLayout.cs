@@ -29,6 +29,12 @@ public sealed class DeviceLayoutItem
     /// <summary>Geräte-Helligkeit 0..100 %, zusätzlich zur Helligkeit der Szene.</summary>
     public int Brightness { get; set; } = 100;
 
+    /// <summary>Spiel-Anzeige (Effekte „Spiel: …“ und „Bildschirm – Spiel-Profil“): IDs der Bereiche des Profils, die
+    /// dieses Gerät zeigt. Der erste ist die Hauptanzeige (leer = Effekt-Fläche wie bei jedem anderen Effekt), die
+    /// übrigen überdecken sie nur, solange sie kritisch sind (blinkende Stufe, Blitz). Leere Liste = nur Effekt-Fläche.</summary>
+    public List<string> ScreenRegions { get => _screenRegions; set => _screenRegions = value ?? new(); }
+    private List<string> _screenRegions = new();
+
     /// <summary>Canvas-Position jeder LED: die normierten Positionen der Form werden ins Rechteck
     /// eingepasst und um die Rechteck-Mitte gedreht. Reihenfolge = LED-Reihenfolge am Gerät.</summary>
     public IReadOnlyList<(double X, double Y)> ComputeLedPositions(LedShape shape)
@@ -62,7 +68,8 @@ public sealed class DeviceLayoutItem
         Width = Width,
         Height = Height,
         RotationDegrees = RotationDegrees,
-        Brightness = Brightness
+        Brightness = Brightness,
+        ScreenRegions = ScreenRegions.ToList()
     };
 }
 

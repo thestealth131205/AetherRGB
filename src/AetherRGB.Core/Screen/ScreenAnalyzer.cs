@@ -51,15 +51,28 @@ public sealed class ScreenAnalyzer
 
     public ScreenAnalyzer(ScreenProfile? profile) => Profile = profile;
 
-    public ScreenAnalysis Analyze(ScreenImage image, long? timestamp = null)
+    /// <summary>Verstärkung der Sättigung für Mischfarben, Ambilight-Bild und „Mischfarbe“-Bereiche
+    /// (<see cref="ColorBoost.Saturate(RgbColor, double)"/>), 1 = unverändert.</summary>
+    public double Saturation { get; set; } = 1;
+
+    /// <summary>Übersichtsbild und Mischfarbe eines Bildes, schon verstärkt. Teilen sich mehrere Analyzer ein Bild
+    /// (mehrere Spiel-Profile gleichzeitig), wird das nur einmal berechnet und an <see cref="Analyze"/> übergeben.</summary>
+    public static (RgbColor[] Thumbnail, RgbColor Average) Overview(ScreenImage image, double saturation)
+    {
+        var thumb = image.Thumbnail(ThumbCols, ThumbRows);
+        var average = ColorBoost.Saturate(AverageOf(thumb), saturation);
+        ColorBoost.Saturate(thumb, saturation);
+        return (thumb, average);
+    }
+
+    public ScreenAnalysis Analyze(ScreenImage image, long? timestamp = null, (RgbColor[] Thumbnail, RgbColor Average)? overview = null)
     {
         long now = timestamp ?? Stopwatch.GetTimestamp();
         double dtMs = _lastTimestamp == 0 ? 0 : (now - _lastTimestamp) * 1000.0 / Stopwatch.Frequency;
         _lastTimestamp = now;
 
         var results = new Dictionary<string, RegionResult>();
-        var thumb = image.Thumbnail(ThumbCols, ThumbRows);
-        var average = AverageOf(thumb);
+        var (thumb, average) = overview ?? Overview(image, Saturation);
         bool hud = true;
 
         if (Profile is not null)
@@ -102,7 +115,7 @@ public sealed class ScreenAnalyzer
     private RegionResult Measure(ScreenImage image, ScreenRegion region, long now, double dtMs)
     {
         var state = StateOf(region);
-        var avg = image.Average(region.Area);
+        var avg = ColorBoost.Saturate(image.Average(region.Area), Saturation);
         switch (region.Rule)
         {
             case RegionRule.Average:
@@ -139,6 +152,12 @@ public sealed class ScreenAnalyzer
             {
                 double share = Share(image, region);
                 return new RegionResult(share, share, avg, 0, share >= region.Threshold);
+            }
+
+            case RegionRule.ColorDistance:
+            {
+                double raw = Distance(image, region);
+                return new RegionResult(raw, Smooth(state, raw, region.SmoothingMs, dtMs), avg, 0, true);
             }
 
             default:
@@ -254,6 +273,56 @@ public sealed class ScreenAnalyzer
             }
         }
         return (double)best / length;
+    }
+
+    /// <summary>Raster für <see cref="Distance"/>: so viele Zellen über die längere Seite des Bereichs.</summary>
+    public const int DistanceGrid = 32;
+
+    /// <summary>Abstand von der Bereichsmitte zur nächsten Stelle in einer der Farben, 0..1 (1 = nichts in Reichweite
+    /// <see cref="ScreenRegion.Range"/>, gemessen in halben Bereichsgrößen). Gezählt werden nur Rasterzellen, die zu
+    /// mindestens 40 % passen — einzelne Pixel (Symbole, Mitspieler-Marker) ergeben so keinen „nahen Sturm“. Die
+    /// Zellen direkt um die Mitte (Spielerpfeil) zählen als Abstand 0.</summary>
+    public static double Distance(ScreenImage image, ScreenRegion region)
+    {
+        if (region.Colors.Count == 0) return 1;
+        var (x0, y0, x1, y1) = image.ToPixels(region.Area);
+        int w = x1 - x0, h = y1 - y0;
+        if (w <= 0 || h <= 0) return 1;
+        double cell = Math.Max(1.0, Math.Max(w, h) / (double)DistanceGrid);
+        int cols = Math.Max(1, (int)Math.Ceiling(w / cell)), rows = Math.Max(1, (int)Math.Ceiling(h / cell));
+        double cx = x0 + w / 2.0, cy = y0 + h / 2.0;
+        double halfX = w / 2.0, halfY = h / 2.0;
+        var px = image.Bgra;
+        double best = double.MaxValue;
+
+        for (int row = 0; row < rows; row++)
+        {
+            int ya = y0 + (int)(row * cell), yb = Math.Min(y1, y0 + (int)((row + 1) * cell));
+            if (yb <= ya) continue;
+            for (int col = 0; col < cols; col++)
+            {
+                int xa = x0 + (int)(col * cell), xb = Math.Min(x1, x0 + (int)((col + 1) * cell));
+                if (xb <= xa) continue;
+                int hits = 0, total = 0;
+                for (int y = ya; y < yb; y++)
+                {
+                    int i = (y * image.Width + xa) * 4;
+                    for (int x = xa; x < xb; x++, i += 4, total++)
+                        if (MatchesAny(region.Colors, px[i + 2], px[i + 1], px[i])) hits++;
+                }
+                if (hits * 5 < total * 2) continue;
+                // Nächster Punkt der Zelle zur Mitte, relativ zur halben Bereichsgröße (Kreis bei quadratischer Minimap).
+                double dx = Math.Max(0, Math.Max(xa - cx, cx - xb)) / halfX;
+                double dy = Math.Max(0, Math.Max(ya - cy, cy - yb)) / halfY;
+                double d = Math.Sqrt(dx * dx + dy * dy);
+                if (d < best) best = d;
+            }
+        }
+        if (best == double.MaxValue) return 1;
+        // Mitte ± eine Zelle zählt als „drin“ (die Spielfigur verdeckt die Farbe genau in der Mitte).
+        double inside = 1.5 * cell / Math.Min(halfX, halfY);
+        if (best <= inside) return 0;
+        return Math.Clamp(best / region.Range, 0, 1);
     }
 
     private static bool MatchesAny(List<ColorMatcher> colors, byte r, byte g, byte b)

@@ -6,7 +6,7 @@ namespace AetherRGB.Core.Screen;
 
 /// <summary>Effekte aus der Bildschirmaufnahme (<see cref="ScreenHub"/>). Nur das fertige Bild wird gelesen — kein Code im
 /// Spiel, kein Speicherzugriff. Ohne laufende Aufnahme bleiben die LEDs dunkel.</summary>
-public sealed class CanvasScreenEffect : ICanvasEffect
+public sealed class CanvasScreenEffect : IDeviceAwareCanvasEffect
 {
     public enum Mode
     {
@@ -46,6 +46,13 @@ public sealed class CanvasScreenEffect : ICanvasEffect
             Mode.Picture => SampleThumbnail(analysis, u, v),
             _ => SampleProfile(analysis, u, v, elapsed, Stopwatch.GetTimestamp()),
         };
+    }
+
+    /// <summary>Spiel-Profil: Geräte mit zugewiesenen Bereichen zeigen deren Wert (<see cref="ScreenGauge"/>).</summary>
+    public void ApplyToDevice(Layout.DeviceLayoutItem item, RgbColor[] colors, TimeSpan elapsed)
+    {
+        if (_mode != Mode.Profile) return;
+        ScreenGauge.Apply(_hub.IsLive ? _hub.Latest : null, item.ScreenRegions, colors, elapsed, Stopwatch.GetTimestamp());
     }
 
     private static RgbColor SampleThumbnail(ScreenAnalysis a, double u, double v)
@@ -103,12 +110,15 @@ public sealed class CanvasScreenEffect : ICanvasEffect
 
             case RegionRule.ColorFlash:
             case RegionRule.ValueDrop:
+                return (region.ColorHigh, ScreenGauge.FlashLevel(region, r, now));
+
+            case RegionRule.ColorDistance:
             {
-                if (r.LastTrigger == 0) return (RgbColor.Black, 0);
-                double ms = (now - r.LastTrigger) * 1000.0 / Stopwatch.Frequency;
-                if (ms < 0 || ms >= region.FlashMs) return (RgbColor.Black, 0);
-                double t = 1 - ms / region.FlashMs;
-                return (region.ColorHigh, t * t);
+                // Je näher die Farbe (Sturm), desto kräftiger; Farbe und Blinken aus den Stufen.
+                if (r.Value >= 0.999) return (RgbColor.Black, 0);
+                var step = ScreenGauge.StepFor(region, r.Value);
+                if (step.Blink && !ScreenGauge.BlinkOn(region, elapsed)) return (RgbColor.Black, 0);
+                return Display(region, 1 - r.Value, u, step.Color, 1 - r.Value);
             }
 
             default:

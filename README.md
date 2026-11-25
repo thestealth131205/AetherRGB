@@ -113,13 +113,26 @@ Ebenen, Animations-Vorlagen und Keyframes. Die platzierten Geräte liegen zur Or
     (Leben + Schild = Schaden) und *HUD-Prüfung* (in Menü/Lobby pausieren die Regeln). Jede Regel wirkt
     als Ebene auf einen Zielbereich der Effekt-Fläche: einfärben, als Balken, mit Farbskala, Pulsieren
     bei wenig Leben, Blitzdauer.
+  - **Spiel: &lt;Profil&gt;**: Jedes gespeicherte Profil erscheint als eigener Effekt im Effekt-Fenster. Dort
+    lassen sich einzelnen Geräten Bereiche zuweisen (Gerät anklicken → „Spiel-Anzeige“): Der Wert erscheint
+    dann direkt auf den LEDs, z. B. Leben als Füllstand über einen Strip (ab 4 LEDs) mit Farbstufen — bis
+    100 % grün, bis 50 % gelb, bis 30 % orange, bis 15 % rot blinkend. Zusätzliche Bereiche überdecken
+    die Hauptanzeige nur, solange sie kritisch sind (blinkende Stufe, Blitz) — so blinkt der Leben-Strip
+    nur dann lila, wenn der Sturm ganz nah ist. Geräte ohne Zuweisung zeigen die Effekt-Fläche.
+  - **Abstand zur Farbe**: misst in der Minimap, wie weit die nächste Sturmfläche bzw. die pink-rote
+    Sturmgrenze von der Spielfigur in der Mitte entfernt ist; auf einem Gerät wächst der Balken, je näher
+    der Sturm kommt.
+  - Gemittelte Bildschirmfarben werden kräftiger gemacht (Einstellung „Farbsättigung“, Standard 160 %),
+    aufgenommen wird standardmäßig mit 15 Bildern pro Sekunde, um CPU zu sparen.
   - **Bereichs-Editor** (Einstellungen → Bildschirm-Sync): Standbild vom Monitor (auch mit 5 s Verzögerung,
     um ins Spiel zu wechseln), Screenshot-Datei (bei zwei Monitoren nebeneinander wird eine Hälfte
     gewählt) oder live; Rechtecke aufziehen, Farben per Pipette, Messwerte und LED-Vorschau sofort.
     Profile liegen als JSON in `%APPDATA%\AetherRGB\screen-profiles`, mit Prozessname wird ein Profil
     automatisch aktiv, wenn das Spiel im Vordergrund läuft.
   - **Fortnite-Vorlage**: Lebensbalken als Farbskala rot → gelb → grün (pulsiert unter 25 %), Schild als
-    blauer Schimmer, Sturm in der Minimap als Lila, roter Blitz bei Schaden. Gemessen in 1920 × 1080 mit
+    blauer Schimmer, Sturm-Abstand in der Minimap als Lila (blinkt pink, wenn der Sturm ganz nah ist),
+    roter Blitz bei Schaden — auf der Effekt-Fläche und mit Farbstufen für zugewiesene Geräte. Ältere,
+    aus der Vorlage entstandene Profile werden beim Start ergänzt, ohne verschobene Bereiche zu ändern. Gemessen in 1920 × 1080 mit
     Standard-HUD; bei anderem HUD-Layout die Bereiche im Editor verschieben.
   - Grenzen: Bei exklusivem Vollbild kann GDI Schwarz liefern („Fenstermodus-Vollbild“ wählen), HDR kann
     Farben verfälschen, Fehlauslöser durch gleichfarbige Effekte im Spiel sind möglich.

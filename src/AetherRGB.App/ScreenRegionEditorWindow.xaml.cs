@@ -319,7 +319,7 @@ public partial class ScreenRegionEditorWindow : Window
             _analysisImage = image;
             ShotImage.Source = ToBitmap(image);
         }
-        _liveAnalyzer ??= new ScreenAnalyzer(_profile);
+        _liveAnalyzer ??= new ScreenAnalyzer(_profile) { Saturation = _hub.Saturation };
         _analysis = _liveAnalyzer.Analyze(image);
         UpdateAnalysisText();
         RefreshRegionList();
@@ -365,7 +365,7 @@ public partial class ScreenRegionEditorWindow : Window
     {
         if (LiveToggle.IsChecked == true) return; // live wertet der Timer aus
         if (_analysisImage is null) { _analysis = null; UpdateAnalysisText(); return; }
-        var analyzer = new ScreenAnalyzer(_profile);
+        var analyzer = new ScreenAnalyzer(_profile) { Saturation = _hub.Saturation };
         long t = Stopwatch.GetTimestamp();
         for (int i = 0; i < 3; i++) _analysis = analyzer.Analyze(_analysisImage, t + i * Stopwatch.Frequency / 30);
         UpdateAnalysisText();
@@ -396,6 +396,7 @@ public partial class ScreenRegionEditorWindow : Window
             RegionRule.HudCheck => $"{r.Raw:P0} passend → {(r.Passed ? "sichtbar" : "nicht sichtbar")}",
             RegionRule.ColorFlash => $"Anteil {r.Raw:P0}" + (RecentlyTriggered(region, r) ? "  ⚡" : ""),
             RegionRule.ValueDrop => $"Summe {r.Raw:0.00}" + (RecentlyTriggered(region, r) ? "  ⚡" : ""),
+            RegionRule.ColorDistance => $"{r.Value:P0}" + (r.Raw >= 0.999 ? " (nichts in Reichweite)" : r.Raw <= 0.001 ? " (an der Mitte)" : ""),
             _ => "",
         };
     }
@@ -405,6 +406,7 @@ public partial class ScreenRegionEditorWindow : Window
 
     private void RenderPreview()
     {
+        UpdateGaugePreview();
         var analysis = _analysis;
         int w = _preview.PixelWidth, h = _preview.PixelHeight;
         var pixels = new int[w * h];
@@ -433,6 +435,7 @@ public partial class ScreenRegionEditorWindow : Window
         RegionRule.BarFill => Color.FromRgb(34, 197, 94),
         RegionRule.ColorFlash => Color.FromRgb(239, 68, 68),
         RegionRule.ValueDrop => Color.FromRgb(249, 115, 22),
+        RegionRule.ColorDistance => Color.FromRgb(236, 72, 153),
         _ => Color.FromRgb(56, 189, 248),
     };
 
@@ -623,7 +626,7 @@ public partial class ScreenRegionEditorWindow : Window
         MarkDirty();
     }
 
-    private static bool UsesColors(RegionRule rule) => rule is RegionRule.ColorShare or RegionRule.BarFill or RegionRule.ColorFlash or RegionRule.HudCheck;
+    private static bool UsesColors(RegionRule rule) => rule is RegionRule.ColorShare or RegionRule.BarFill or RegionRule.ColorFlash or RegionRule.HudCheck or RegionRule.ColorDistance;
 
     // ===================== Bereichsliste =====================
 
@@ -739,6 +742,7 @@ public partial class ScreenRegionEditorWindow : Window
         (RegionRule.ColorFlash, "Farb-Blitz", "Blitz, wenn der Anteil einer Farbe plötzlich steigt (z. B. roter Rand bei Treffern)."),
         (RegionRule.ValueDrop, "Wert fällt → Blitz", "Blitz, wenn die Werte anderer Bereiche fallen — z. B. Leben + Schild = Schaden. Misst selbst kein Bild."),
         (RegionRule.HudCheck, "HUD-Prüfung", "Kein Licht. Fehlen die Farben hier (Menü, Lobby, tot), pausieren die übrigen Regeln."),
+        (RegionRule.ColorDistance, "Abstand zur Farbe", "Wie weit ist die nächste Stelle in einer der Farben von der Mitte des Bereichs entfernt? Für die Minimap: Die Spielfigur steht in der Mitte, die Farbe ist der Sturm. 0 % = an der Mitte, 100 % = nichts in Reichweite."),
     };
 
     private static string RuleName(RegionRule rule) => Rules.First(r => r.Rule == rule).Name;
@@ -805,6 +809,10 @@ public partial class ScreenRegionEditorWindow : Window
             case RegionRule.HudCheck:
                 SliderField("HUD sichtbar ab Anteil", 0.02, 1, region.Threshold, "P0", v => { region.Threshold = v; MarkDirty(); });
                 break;
+            case RegionRule.ColorDistance:
+                SliderField("Reichweite (× halbe Bereichsgröße)", 0.1, 1.5, region.Range, "0.00", v => { region.Range = Math.Round(v, 2); MarkDirty(); });
+                Label("Weiter entfernte Farbe zählt als „nichts in Reichweite“ (100 %). Bei 1,00 reicht sie bis zum Rand der Minimap.");
+                break;
             case RegionRule.ValueDrop:
             {
                 SliderField("Blitz ab Abfall um", 0.005, 0.5, region.Threshold, "P1", v => { region.Threshold = v; MarkDirty(); });
@@ -822,7 +830,7 @@ public partial class ScreenRegionEditorWindow : Window
                 break;
             }
         }
-        if (region.Rule is RegionRule.ColorShare or RegionRule.BarFill)
+        if (region.Rule is RegionRule.ColorShare or RegionRule.BarFill or RegionRule.ColorDistance)
             SliderField("Glättung (ms)", 0, 1500, region.SmoothingMs, "0", v => { region.SmoothingMs = Math.Round(v / 10) * 10; MarkDirty(); });
 
         if (!region.HasLayer) return;
@@ -841,6 +849,9 @@ public partial class ScreenRegionEditorWindow : Window
             case RegionRule.ColorShare:
                 ColorField("Farbe", () => region.ColorHigh, c => { region.ColorHigh = c; MarkDirty(); });
                 break;
+            case RegionRule.ColorDistance:
+                Label("Je näher die Farbe, desto kräftiger. Farbe und Blinken kommen aus den Farbstufen unten.");
+                break;
             case RegionRule.ColorFlash:
             case RegionRule.ValueDrop:
                 ColorField("Blitzfarbe", () => region.ColorHigh, c => { region.ColorHigh = c; MarkDirty(); });
@@ -848,7 +859,7 @@ public partial class ScreenRegionEditorWindow : Window
                 break;
         }
         SliderField("Deckkraft", 0, 1, region.Opacity, "P0", v => { region.Opacity = v; MarkDirty(); });
-        if (region.Rule is RegionRule.BarFill or RegionRule.ColorShare)
+        if (region.Rule is RegionRule.BarFill or RegionRule.ColorShare or RegionRule.ColorDistance)
         {
             var display = new ComboBox { Margin = new Thickness(0, 2, 0, 8) };
             display.Items.Add("Ganze Zielfläche einfärben");
@@ -859,6 +870,116 @@ public partial class ScreenRegionEditorWindow : Window
             RegionPanel.Children.Add(display);
         }
         RectFields("Zielfläche auf der Effekt-Fläche (%)", () => region.Target, v => { region.Target = v; MarkDirty(); });
+
+        if (region.CanShowOnDevice) BuildDeviceSection(region);
+    }
+
+    // ===================== Anzeige auf zugewiesenen Geräten =====================
+
+    private Border[]? _gaugeLeds;
+    private ScreenRegion? _gaugeRegion;
+
+    /// <summary>Wie der Bereich auf einem Gerät erscheint, dem er im Effekt-Fenster zugewiesen ist: Füllstand, Farbstufen,
+    /// Blinken. Mit einer Vorschau über 8 LEDs zum aktuellen Messwert.</summary>
+    private void BuildDeviceSection(ScreenRegion region)
+    {
+        Header("Anzeige auf zugewiesenen Geräten");
+        Label("Im Effekt-Fenster den Effekt „Spiel: " + _profile.Name + "“ wählen, ein Gerät anklicken und diesen Bereich zuweisen.");
+
+        _gaugeRegion = region;
+        var ledRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 6) };
+        _gaugeLeds = Enumerable.Range(0, 8).Select(_ => new Border
+        {
+            Width = 22, Height = 22, CornerRadius = new CornerRadius(11), Margin = new Thickness(0, 0, 5, 0),
+            BorderThickness = new Thickness(1), BorderBrush = (Brush)FindResource("BrushBorder"), Background = Brushes.Black,
+        }).ToArray();
+        foreach (var led in _gaugeLeds) ledRow.Children.Add(led);
+        ledRow.Children.Add(new TextBlock { Text = "Vorschau, 8 LEDs", Style = Muted, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) });
+        RegionPanel.Children.Add(ledRow);
+        UpdateGaugePreview();
+
+        if (region.Rule is RegionRule.ColorFlash or RegionRule.ValueDrop)
+        {
+            Label("Alle LEDs blitzen in der Blitzfarbe. Als zusätzlicher Bereich überdeckt der Blitz die Hauptanzeige des Geräts.");
+            return;
+        }
+        if (region.Rule == RegionRule.Average)
+        {
+            Label("Alle LEDs zeigen die Mischfarbe des Bereichs.");
+            return;
+        }
+
+        var fill = new ComboBox { Margin = new Thickness(0, 2, 0, 8) };
+        fill.Items.Add("Füllstand = Wert (voller Balken = alle LEDs)");
+        fill.Items.Add("Füllstand umgekehrt (je kleiner der Wert, desto mehr LEDs — z. B. Sturm-Abstand)");
+        fill.Items.Add("Immer alle LEDs, nur die Farbe der Stufe");
+        fill.SelectedIndex = (int)region.DeviceFill;
+        fill.SelectionChanged += (_, _) => { region.DeviceFill = (DeviceFill)fill.SelectedIndex; MarkDirty(); UpdateGaugePreview(); };
+        Label("LEDs");
+        RegionPanel.Children.Add(fill);
+        Label($"Füllstände brauchen mindestens {ScreenRegion.MinGaugeLeds} LEDs, sonst leuchten immer alle in der Farbe der Stufe.");
+
+        Header("Farbstufen");
+        Label("Eine Stufe gilt bis zu ihrem Wert, die kleinste passende gewinnt — z. B. bis 100 % grün, bis 50 % gelb, bis 30 % orange, bis 15 % rot blinkend. " +
+              "Blinkende Stufen gelten als kritisch: Nur dann überdeckt der Bereich die Hauptanzeige eines Geräts. Ohne Stufen gilt die Farbskala oben.");
+        var steps = region.Steps.Select((st, i) => (st, i)).OrderByDescending(x => x.st.UpTo).ToList();
+        foreach (var (step, index) in steps)
+        {
+            int idx = index;
+            var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
+            var remove = new Button { Content = "✕", Width = 26, Padding = new Thickness(0), ToolTip = "Stufe entfernen" };
+            remove.Click += (_, _) => { region.Steps.RemoveAt(idx); BuildRegionPanel(); MarkDirty(); };
+            DockPanel.SetDock(remove, Dock.Right);
+            row.Children.Add(remove);
+
+            var inner = new StackPanel { Orientation = Orientation.Horizontal };
+            inner.Children.Add(new TextBlock { Text = "bis", Style = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
+            var upTo = new TextBox { Text = (step.UpTo * 100).ToString("0", CultureInfo.CurrentCulture), Width = 44, VerticalAlignment = VerticalAlignment.Center };
+            void CommitUpTo()
+            {
+                if (!double.TryParse(upTo.Text.Replace("%", ""), NumberStyles.Float, CultureInfo.CurrentCulture, out var pct)) { upTo.Text = (region.Steps[idx].UpTo * 100).ToString("0", CultureInfo.CurrentCulture); return; }
+                var v = Math.Clamp(pct / 100, 0, 1);
+                if (Math.Abs(v - region.Steps[idx].UpTo) < 1e-9) return;
+                region.Steps[idx] = region.Steps[idx] with { UpTo = v };
+                MarkDirty();
+                UpdateGaugePreview();
+            }
+            upTo.LostFocus += (_, _) => CommitUpTo();
+            upTo.KeyDown += (_, e) => { if (e.Key == Key.Enter) CommitUpTo(); };
+            inner.Children.Add(upTo);
+            inner.Children.Add(new TextBlock { Text = "%", Style = Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 10, 0) });
+            inner.Children.Add(ColorSwatch(() => region.Steps[idx].Color, c => { region.Steps[idx] = region.Steps[idx] with { Color = c }; MarkDirty(); UpdateGaugePreview(); }));
+            var blink = new CheckBox { Content = "blinkt", IsChecked = step.Blink, Foreground = (Brush)FindResource("BrushText"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+            blink.Checked += (_, _) => { region.Steps[idx] = region.Steps[idx] with { Blink = true }; MarkDirty(); };
+            blink.Unchecked += (_, _) => { region.Steps[idx] = region.Steps[idx] with { Blink = false }; MarkDirty(); };
+            inner.Children.Add(blink);
+            row.Children.Add(inner);
+            RegionPanel.Children.Add(row);
+        }
+        var add = new Button { Content = "+ Stufe", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 6) };
+        add.Click += (_, _) =>
+        {
+            if (region.Steps.Count >= 12) return;
+            double lowest = region.Steps.Count == 0 ? 2 : region.Steps.Min(st => st.UpTo);
+            region.Steps.Add(region.Steps.Count == 0
+                ? new GaugeStep(1, region.ColorHigh)
+                : new GaugeStep(Math.Round(lowest / 2, 2), new RgbColor(255, 0, 0), blink: true));
+            BuildRegionPanel();
+            MarkDirty();
+        };
+        RegionPanel.Children.Add(add);
+        SliderField("Blinken (pro Sekunde)", 0.5, 8, region.BlinkHz, "0.0", v => { region.BlinkHz = Math.Round(v, 1); MarkDirty(); });
+    }
+
+    /// <summary>LED-Vorschau im Abschnitt „Anzeige auf zugewiesenen Geräten“ zum aktuellen Messwert (inkl. Blinken).</summary>
+    private void UpdateGaugePreview()
+    {
+        if (_gaugeLeds is null || _gaugeRegion is null || _gaugeRegion != _selected) return;
+        var colors = new RgbColor[_gaugeLeds.Length];
+        if (_analysis is not null && _analysis.Results.TryGetValue(_gaugeRegion.Id, out var result))
+            ScreenGauge.RenderRegion(_gaugeRegion, result, colors, _clock.Elapsed, Stopwatch.GetTimestamp());
+        for (int i = 0; i < colors.Length; i++)
+            _gaugeLeds[i].Background = new SolidColorBrush(ToWpf(colors[i]));
     }
 
     private void BuildColorList(ScreenRegion region)
