@@ -60,9 +60,15 @@ public sealed class RedragonDeviceProvider : IDeviceProvider, IProviderLog
     public Task SetZoneColorAsync(string deviceId, int zoneIndex, RgbColor color, CancellationToken ct = default)
     {
         if (!IsConnected) return Task.CompletedTask;
-        var report = RedragonHidProtocol.BuildSetColorReport(color.R, color.G, color.B);
-        if (!_transport.WriteFeatureReport(report))
-            _transport.WriteOutputReport(report); // Fallback, falls dieses Modell Output- statt Feature-Reports erwartet.
+        void Diag(string msg) => Log?.Invoke(LogLevel.Debug, $"[redragon] {msg}");
+
+        var featureReport = RedragonHidProtocol.BuildSetColorReport(color.R, color.G, color.B, _transport.FeatureReportLength);
+        if (_transport.WriteFeatureReport(featureReport, Diag)) return Task.CompletedTask;
+
+        // Fallback, falls dieses Modell Output- statt Feature-Reports erwartet — eigene Puffergröße,
+        // weil Feature- und Output-Report-Länge auf demselben Gerät unterschiedlich sein können.
+        var outputReport = RedragonHidProtocol.BuildSetColorReport(color.R, color.G, color.B, _transport.OutputReportLength);
+        _transport.WriteOutputReport(outputReport, Diag);
         return Task.CompletedTask;
     }
 
@@ -84,11 +90,18 @@ public sealed class RedragonDeviceProvider : IDeviceProvider, IProviderLog
     public async Task<bool> RunSafeColorTestAsync(CancellationToken ct = default)
     {
         if (!IsConnected) return false;
-        var report = RedragonHidProtocol.BuildSingleColorTestReport();
-        bool sent = _transport.WriteFeatureReport(report) || _transport.WriteOutputReport(report);
+        void Diag(string msg) => Log?.Invoke(LogLevel.Debug, $"[redragon] {msg}");
+
+        var featureReport = RedragonHidProtocol.BuildSingleColorTestReport(_transport.FeatureReportLength);
+        bool sent = _transport.WriteFeatureReport(featureReport, Diag);
+        if (!sent)
+        {
+            var outputReport = RedragonHidProtocol.BuildSingleColorTestReport(_transport.OutputReportLength);
+            sent = _transport.WriteOutputReport(outputReport, Diag);
+        }
         Log?.Invoke(sent ? LogLevel.Info : LogLevel.Error, sent
             ? "Testreport (Magenta) gesendet — bitte prüfen, ob sich an der Maus etwas verändert hat."
-            : "Testreport konnte nicht gesendet werden (Schreibfehler auf dem HID-Stream).");
+            : "Testreport konnte nicht gesendet werden. Grund steht in der Zeile direkt darüber.");
         await Task.CompletedTask;
         return sent;
     }

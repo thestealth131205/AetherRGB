@@ -17,6 +17,13 @@ namespace AetherRGB.Providers.Redragon;
 /// USBPcap) gegen die offizielle Redragon-Software den tatsächlichen Befehlssatz abgleichen.</summary>
 public static class RedragonHidProtocol
 {
+    /// <summary>Fallback-Länge, falls die tatsächliche Report-Länge des Geräts nicht bekannt ist
+    /// (z. B. in Unit-Tests ohne echtes HID-Gerät). Auf echter Hardware MUSS die an
+    /// <see cref="RedragonHidTransport.FeatureReportLength"/>/<see cref="RedragonHidTransport.OutputReportLength"/>
+    /// gemeldete Länge verwendet werden — Windows verlangt bei HidD_SetFeature/WriteFile einen Puffer,
+    /// der exakt der vom Gerät gemeldeten Report-Länge entspricht, sonst schlägt der Aufruf ganz ohne
+    /// aussagekräftigen Fehlercode fehl (genau das war die Ursache des ersten gescheiterten Tests: ein
+    /// fest auf 65 Byte verdrahteter Puffer gegen ein Gerät, das 1032 Byte erwartet).</summary>
     public const int ReportLength = 65;
 
     private const byte ReportId = 0x08;
@@ -25,9 +32,11 @@ public static class RedragonHidProtocol
     /// <summary>Setzt die gesamte Sammelzone (Logo + Scrollrad-Ring als eine Zone, siehe
     /// <see cref="AetherRGB.Core.Config.RedragonConfig.LedCountOverride"/>) auf eine Farbe — für
     /// einfache statische Farben/Sync-Effekte ohne Pro-LED-Ansteuerung.</summary>
-    public static byte[] BuildSetColorReport(byte r, byte g, byte b)
+    /// <param name="reportLength">Vom Gerät gemeldete Report-Länge (Feature oder Output). Der Rest des
+    /// Puffers bleibt Null-gepolstert, Windows verlangt trotzdem die exakte Gesamtlänge.</param>
+    public static byte[] BuildSetColorReport(byte r, byte g, byte b, int reportLength = ReportLength)
     {
-        var report = new byte[ReportLength];
+        var report = new byte[Math.Max(reportLength, 6)];
         report[0] = ReportId;
         report[1] = CmdSetStaticColor;
         report[2] = 0x01; // Modus: statische Farbe (unverifiziert, analog zu vergleichbaren Redragon-Modellen)
@@ -39,5 +48,6 @@ public static class RedragonHidProtocol
 
     /// <summary>Auffällige, nicht mit "aus" verwechselbare Testfarbe für den ersten Verifikationsschritt
     /// an echter Hardware (reines Magenta kommt in keiner normalen Boot-Beleuchtung zufällig vor).</summary>
-    public static byte[] BuildSingleColorTestReport() => BuildSetColorReport(255, 0, 255);
+    public static byte[] BuildSingleColorTestReport(int reportLength = ReportLength) =>
+        BuildSetColorReport(255, 0, 255, reportLength);
 }

@@ -19,6 +19,15 @@ public sealed class RedragonHidTransport : IDisposable
     private HidStream? _stream;
     public HidDevice? Device { get; private set; }
 
+    /// <summary>Vom geöffneten Gerät gemeldete Feature-Report-Länge (inkl. Report-ID-Byte). Windows
+    /// verlangt bei HidD_SetFeature exakt diese Länge, unabhängig von der verwendeten Report-ID
+    /// innerhalb desselben Top-Level-Collection — ein kürzerer Puffer schlägt sonst ohne brauchbare
+    /// Fehlermeldung fehl. 0, solange kein Gerät offen ist.</summary>
+    public int FeatureReportLength { get; private set; }
+
+    /// <summary>Entsprechend für WriteFile/Output-Reports. 0, solange kein Gerät offen ist.</summary>
+    public int OutputReportLength { get; private set; }
+
     /// <summary>0 = Standard-Vendor-ID verwenden.</summary>
     public int VendorIdOverride { get; set; }
 
@@ -51,8 +60,11 @@ public sealed class RedragonHidTransport : IDisposable
                 if (!device.TryOpen(out var stream)) continue;
                 Device = device;
                 _stream = stream;
+                FeatureReportLength = device.GetMaxFeatureReportLength();
+                OutputReportLength = device.GetMaxOutputReportLength();
                 log?.Invoke($"Verbunden: VID=0x{device.VendorID:X4} PID=0x{device.ProductID:X4} " +
-                            $"Produkt='{device.GetProductName()}' MaxFeatureReportLength={device.GetMaxFeatureReportLength()}");
+                            $"Produkt='{device.GetProductName()}' MaxFeatureReportLength={FeatureReportLength} " +
+                            $"MaxOutputReportLength={OutputReportLength}");
                 return true;
             }
             catch (Exception ex)
@@ -74,7 +86,7 @@ public sealed class RedragonHidTransport : IDisposable
             .ToList();
     }
 
-    public bool WriteFeatureReport(byte[] report)
+    public bool WriteFeatureReport(byte[] report, Action<string>? log = null)
     {
         if (_stream is null) return false;
         try
@@ -82,13 +94,14 @@ public sealed class RedragonHidTransport : IDisposable
             _stream.SetFeature(report);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            log?.Invoke($"SetFeature({report.Length} Byte, Gerät erwartet {FeatureReportLength}) fehlgeschlagen: {ex.Message}");
             return false;
         }
     }
 
-    public bool WriteOutputReport(byte[] report)
+    public bool WriteOutputReport(byte[] report, Action<string>? log = null)
     {
         if (_stream is null) return false;
         try
@@ -96,8 +109,9 @@ public sealed class RedragonHidTransport : IDisposable
             _stream.Write(report);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            log?.Invoke($"Write({report.Length} Byte, Gerät erwartet {OutputReportLength}) fehlgeschlagen: {ex.Message}");
             return false;
         }
     }
