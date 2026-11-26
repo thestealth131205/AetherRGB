@@ -26,18 +26,28 @@ public static class RedragonHidProtocol
     /// fest auf 65 Byte verdrahteter Puffer gegen ein Gerät, das 1032 Byte erwartet).</summary>
     public const int ReportLength = 65;
 
-    private const byte ReportId = 0x08;
+    private const byte DefaultReportId = 0x08;
     private const byte CmdSetStaticColor = 0x07;
+
+    /// <summary>Report-IDs, die nacheinander durchprobiert werden, wenn die erste (0x08) von
+    /// HidD_SetFeature ohne Geräte-Rückmeldung abgelehnt wird (Windows prüft die Report-ID gegen den
+    /// HID-Report-Deskriptor, bevor der Aufruf das Gerät überhaupt erreicht — eine falsche ID scheitert
+    /// deshalb sofort und ohne nützlichen Fehlercode). 0x00 steht für "keine nummerierten Reports"
+    /// (viele einfachere HID-Collections nutzen das), die übrigen sind Rateversuche basierend auf dem
+    /// Byte-Bereich, den andere Redragon-Modelle laut Community-Reverse-Engineering verwenden.</summary>
+    public static readonly byte[] CandidateReportIds = { 0x08, 0x00, 0x04, 0x07, 0x0A };
 
     /// <summary>Setzt die gesamte Sammelzone (Logo + Scrollrad-Ring als eine Zone, siehe
     /// <see cref="AetherRGB.Core.Config.RedragonConfig.LedCountOverride"/>) auf eine Farbe — für
     /// einfache statische Farben/Sync-Effekte ohne Pro-LED-Ansteuerung.</summary>
     /// <param name="reportLength">Vom Gerät gemeldete Report-Länge (Feature oder Output). Der Rest des
     /// Puffers bleibt Null-gepolstert, Windows verlangt trotzdem die exakte Gesamtlänge.</param>
-    public static byte[] BuildSetColorReport(byte r, byte g, byte b, int reportLength = ReportLength)
+    /// <param name="reportId">Byte an Index 0 des Reports. Bei Report-ID 0 (unnummerierte Reports)
+    /// erwartet HidSharp trotzdem ein führendes 0x00-Byte im Puffer, das zählt mit zur Gesamtlänge.</param>
+    public static byte[] BuildSetColorReport(byte r, byte g, byte b, int reportLength = ReportLength, byte reportId = DefaultReportId)
     {
         var report = new byte[Math.Max(reportLength, 6)];
-        report[0] = ReportId;
+        report[0] = reportId;
         report[1] = CmdSetStaticColor;
         report[2] = 0x01; // Modus: statische Farbe (unverifiziert, analog zu vergleichbaren Redragon-Modellen)
         report[3] = r;
@@ -48,6 +58,6 @@ public static class RedragonHidProtocol
 
     /// <summary>Auffällige, nicht mit "aus" verwechselbare Testfarbe für den ersten Verifikationsschritt
     /// an echter Hardware (reines Magenta kommt in keiner normalen Boot-Beleuchtung zufällig vor).</summary>
-    public static byte[] BuildSingleColorTestReport(int reportLength = ReportLength) =>
-        BuildSetColorReport(255, 0, 255, reportLength);
+    public static byte[] BuildSingleColorTestReport(int reportLength = ReportLength, byte reportId = DefaultReportId) =>
+        BuildSetColorReport(255, 0, 255, reportLength, reportId);
 }

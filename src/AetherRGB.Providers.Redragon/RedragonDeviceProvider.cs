@@ -25,6 +25,12 @@ public sealed class RedragonDeviceProvider : IDeviceProvider, IProviderLog
 
     private readonly RedragonHidTransport _transport = new();
 
+    /// <summary>Report-ID, die sich im sicheren Test (<see cref="RunSafeColorTestAsync"/>) als vom
+    /// Gerät akzeptiert herausgestellt hat (SetFeature/Write hat nicht geworfen). Null, solange noch
+    /// keine erfolgreich war — dann wird bei jedem Senden erneut die ganze Liste durchprobiert, was
+    /// unnötig Zeit kostet, aber wenigstens nicht falsch rät.</summary>
+    private byte? _workingReportId;
+
     public Task ConnectAsync(CancellationToken ct = default)
     {
         _transport.VendorIdOverride = VendorIdOverride;
@@ -62,13 +68,19 @@ public sealed class RedragonDeviceProvider : IDeviceProvider, IProviderLog
         if (!IsConnected) return Task.CompletedTask;
         void Diag(string msg) => Log?.Invoke(LogLevel.Debug, $"[redragon] {msg}");
 
-        var featureReport = RedragonHidProtocol.BuildSetColorReport(color.R, color.G, color.B, _transport.FeatureReportLength);
-        if (_transport.WriteFeatureReport(featureReport, Diag)) return Task.CompletedTask;
+        // Steht die funktionierende Report-ID schon fest (aus dem sicheren Test), nur noch die nehmen —
+        // sonst bei jeder Farbänderung erneut alle Kandidaten durchprobieren und erst beim ersten
+        // Erfolg aufhören, damit wenigstens irgendetwas ankommt, bis der Test gelaufen ist.
+        foreach (var reportId in _workingReportId.HasValue ? new[] { _workingReportId.Value } : RedragonHidProtocol.CandidateReportIds)
+        {
+            var featureReport = RedragonHidProtocol.BuildSetColorReport(color.R, color.G, color.B, _transport.FeatureReportLength, reportId);
+            if (_transport.WriteFeatureReport(featureReport, Diag)) { _workingReportId = reportId; return Task.CompletedTask; }
 
-        // Fallback, falls dieses Modell Output- statt Feature-Reports erwartet — eigene Puffergröße,
-        // weil Feature- und Output-Report-Länge auf demselben Gerät unterschiedlich sein können.
-        var outputReport = RedragonHidProtocol.BuildSetColorReport(color.R, color.G, color.B, _transport.OutputReportLength);
-        _transport.WriteOutputReport(outputReport, Diag);
+            // Fallback, falls dieses Modell Output- statt Feature-Reports erwartet — eigene Puffergröße,
+            // weil Feature- und Output-Report-Länge auf demselben Gerät unterschiedlich sein können.
+            var outputReport = RedragonHidProtocol.BuildSetColorReport(color.R, color.G, color.B, _transport.OutputReportLength, reportId);
+            if (_transport.WriteOutputReport(outputReport, Diag)) { _workingReportId = reportId; return Task.CompletedTask; }
+        }
         return Task.CompletedTask;
     }
 
@@ -92,16 +104,36 @@ public sealed class RedragonDeviceProvider : IDeviceProvider, IProviderLog
         if (!IsConnected) return false;
         void Diag(string msg) => Log?.Invoke(LogLevel.Debug, $"[redragon] {msg}");
 
-        var featureReport = RedragonHidProtocol.BuildSingleColorTestReport(_transport.FeatureReportLength);
-        bool sent = _transport.WriteFeatureReport(featureReport, Diag);
-        if (!sent)
+        // Probiert nacheinander mehrere Report-IDs durch, weil eine SetFeature-Ablehnung ohne
+        // Win32-Fehlercode meist bedeutet, dass die ID gar nicht zum HID-Report-Deskriptor dieses
+        // Interfaces passt — nicht, dass das Interface grundsätzlich falsch ist.
+        _workingReportId = null;
+        bool sent = false;
+        foreach (var reportId in RedragonHidProtocol.CandidateReportIds)
         {
-            var outputReport = RedragonHidProtocol.BuildSingleColorTestReport(_transport.OutputReportLength);
-            sent = _transport.WriteOutputReport(outputReport, Diag);
+            Log?.Invoke(LogLevel.Debug, $"[redragon] Teste Report-ID 0x{reportId:X2} …");
+
+            var featureReport = RedragonHidProtocol.BuildSingleColorTestReport(_transport.FeatureReportLength, reportId);
+            sent = _transport.WriteFeatureReport(featureReport, Diag);
+            if (!sent)
+            {
+                var outputReport = RedragonHidProtocol.BuildSingleColorTestReport(_transport.OutputReportLength, reportId);
+                sent = _transport.WriteOutputReport(outputReport, Diag);
+            }
+            if (sent)
+            {
+                _workingReportId = reportId;
+                Log?.Invoke(LogLevel.Info, $"[redragon] Report-ID 0x{reportId:X2} wurde vom System angenommen (SetFeature/Write hat nicht geworfen).");
+                break;
+            }
         }
+
         Log?.Invoke(sent ? LogLevel.Info : LogLevel.Error, sent
-            ? "Testreport (Magenta) gesendet — bitte prüfen, ob sich an der Maus etwas verändert hat."
-            : "Testreport konnte nicht gesendet werden. Grund steht in der Zeile direkt darüber.");
+            ? "Testreport (Magenta) gesendet — bitte prüfen, ob sich an der Maus etwas verändert hat. " +
+              "Wichtig: Dass der Aufruf technisch durchging, heißt noch nicht, dass die Farbe auch stimmt — " +
+              "nur dass diese Report-ID vom System akzeptiert wurde."
+            : "Testreport konnte mit keiner der bekannten Report-IDs gesendet werden. Die genauen Win32-Fehlercodes " +
+              "stehen in den Zeilen direkt darüber — die sind jetzt wichtig für die weitere Diagnose.");
         await Task.CompletedTask;
         return sent;
     }

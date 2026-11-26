@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using HidSharp;
 
 namespace AetherRGB.Providers.Redragon;
@@ -96,7 +98,13 @@ public sealed class RedragonHidTransport : IDisposable
         }
         catch (Exception ex)
         {
-            log?.Invoke($"SetFeature({report.Length} Byte, Gerät erwartet {FeatureReportLength}) fehlgeschlagen: {ex.Message}");
+            // Marshal.GetLastWin32Error() ist thread-lokal und bleibt bis zum nächsten P/Invoke-Aufruf
+            // auf diesem Thread gültig — deshalb hier als Erstes abfragen, vor jedem weiteren Aufruf
+            // (auch log?.Invoke könnte intern P/Invoke auslösen).
+            int win32Error = Marshal.GetLastWin32Error();
+            string decoded = DecodeWin32Error(win32Error);
+            log?.Invoke($"SetFeature(Report-ID 0x{(report.Length > 0 ? report[0] : 0):X2}, {report.Length} Byte, Gerät erwartet {FeatureReportLength}) " +
+                        $"fehlgeschlagen: {ex.Message} [Win32-Fehler {win32Error}: {decoded}]");
             return false;
         }
     }
@@ -111,9 +119,22 @@ public sealed class RedragonHidTransport : IDisposable
         }
         catch (Exception ex)
         {
-            log?.Invoke($"Write({report.Length} Byte, Gerät erwartet {OutputReportLength}) fehlgeschlagen: {ex.Message}");
+            int win32Error = Marshal.GetLastWin32Error();
+            string decoded = DecodeWin32Error(win32Error);
+            log?.Invoke($"Write(Report-ID 0x{(report.Length > 0 ? report[0] : 0):X2}, {report.Length} Byte, Gerät erwartet {OutputReportLength}) " +
+                        $"fehlgeschlagen: {ex.Message} [Win32-Fehler {win32Error}: {decoded}]");
             return false;
         }
+    }
+
+    /// <summary>Übersetzt einen Win32-Fehlercode in einen lesbaren Text. 0 heißt meist, dass der
+    /// Fehler schon vor dem eigentlichen Win32-Aufruf entstanden ist (z. B. in HidSharps eigener
+    /// Längenprüfung), nicht beim Gerät selbst.</summary>
+    private static string DecodeWin32Error(int code)
+    {
+        if (code == 0) return "kein Win32-Fehlercode gesetzt (Fehler kam vermutlich aus einer Prüfung vor dem eigentlichen Systemaufruf, nicht vom Gerät/Treiber)";
+        try { return new Win32Exception(code).Message; }
+        catch { return "unbekannt"; }
     }
 
     public void Dispose()
