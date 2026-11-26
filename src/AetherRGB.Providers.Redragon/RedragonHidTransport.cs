@@ -98,10 +98,7 @@ public sealed class RedragonHidTransport : IDisposable
         }
         catch (Exception ex)
         {
-            // Marshal.GetLastWin32Error() ist thread-lokal und bleibt bis zum nächsten P/Invoke-Aufruf
-            // auf diesem Thread gültig — deshalb hier als Erstes abfragen, vor jedem weiteren Aufruf
-            // (auch log?.Invoke könnte intern P/Invoke auslösen).
-            int win32Error = Marshal.GetLastWin32Error();
+            int win32Error = ExtractWin32Error(ex);
             string decoded = DecodeWin32Error(win32Error);
             log?.Invoke($"SetFeature(Report-ID 0x{(report.Length > 0 ? report[0] : 0):X2}, {report.Length} Byte, Gerät erwartet {FeatureReportLength}) " +
                         $"fehlgeschlagen: {ex.Message} [Win32-Fehler {win32Error}: {decoded}]");
@@ -119,7 +116,7 @@ public sealed class RedragonHidTransport : IDisposable
         }
         catch (Exception ex)
         {
-            int win32Error = Marshal.GetLastWin32Error();
+            int win32Error = ExtractWin32Error(ex);
             string decoded = DecodeWin32Error(win32Error);
             log?.Invoke($"Write(Report-ID 0x{(report.Length > 0 ? report[0] : 0):X2}, {report.Length} Byte, Gerät erwartet {OutputReportLength}) " +
                         $"fehlgeschlagen: {ex.Message} [Win32-Fehler {win32Error}: {decoded}]");
@@ -127,12 +124,34 @@ public sealed class RedragonHidTransport : IDisposable
         }
     }
 
-    /// <summary>Übersetzt einen Win32-Fehlercode in einen lesbaren Text. 0 heißt meist, dass der
-    /// Fehler schon vor dem eigentlichen Win32-Aufruf entstanden ist (z. B. in HidSharps eigener
-    /// Längenprüfung), nicht beim Gerät selbst.</summary>
+    /// <summary>Ermittelt den echten Win32-Fehlercode zu einer fehlgeschlagenen HidSharp-Operation.
+    ///
+    /// <see cref="Marshal.GetLastWin32Error"/> ist thread-lokal und wird vom nächsten P/Invoke-Aufruf
+    /// überschrieben. HidSharp liest den Code intern direkt nach dem Systemaufruf korrekt aus, aber bis
+    /// die Exception bei uns im catch-Block ankommt, sind bereits etliche weitere P/Invokes gelaufen
+    /// (Exception-Konstruktion, Stacktrace-Aufbau, GC) — <c>GetLastWin32Error()</c> liefert an dieser
+    /// Stelle praktisch immer 0, auch wenn der Treiber einen echten Fehler gemeldet hat. Deshalb zuerst
+    /// in <see cref="Exception.HResult"/> nachsehen: .NET bettet einen Win32-Fehlercode dort nach dem
+    /// Standardschema <c>HRESULT_FROM_WIN32</c> ein (High-Word <c>0x8007</c>, Low-Word = Fehlercode),
+    /// und dieser Wert wird schon bei der Exception-Erzeugung festgeschrieben, bevor weitere P/Invokes
+    /// ihn überschreiben können.</summary>
+    private static int ExtractWin32Error(Exception ex)
+    {
+        const int Facility_Win32 = unchecked((int)0x80070000);
+        if ((ex.HResult & unchecked((int)0xFFFF0000)) == Facility_Win32)
+            return ex.HResult & 0xFFFF;
+
+        int fallback = Marshal.GetLastWin32Error();
+        return fallback;
+    }
+
+    /// <summary>Übersetzt einen Win32-Fehlercode in einen lesbaren Text. 0 heißt, dass auch über
+    /// <see cref="Exception.HResult"/> kein Win32-Fehlercode zu finden war — die Ablehnung kam dann
+    /// wirklich aus einer reinen .NET/HidSharp-Prüfung vor dem Systemaufruf (z. B. Pufferlänge), nicht
+    /// vom Gerät oder Treiber.</summary>
     private static string DecodeWin32Error(int code)
     {
-        if (code == 0) return "kein Win32-Fehlercode gesetzt (Fehler kam vermutlich aus einer Prüfung vor dem eigentlichen Systemaufruf, nicht vom Gerät/Treiber)";
+        if (code == 0) return "kein Win32-Fehlercode gefunden (weder aktuell noch im HResult der Exception — Ablehnung kam vermutlich aus einer reinen Prüfung vor dem Systemaufruf, nicht vom Gerät/Treiber)";
         try { return new Win32Exception(code).Message; }
         catch { return "unbekannt"; }
     }
