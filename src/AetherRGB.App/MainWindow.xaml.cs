@@ -25,6 +25,7 @@ using AetherRGB.Core.Update;
 using AetherRGB.Providers.HomeAssistant;
 using AetherRGB.Providers.MsiMysticLight;
 using AetherRGB.Providers.OpenRGB;
+using AetherRGB.Providers.Redragon;
 using AetherRGB.Providers.Wled;
 
 namespace AetherRGB.App;
@@ -54,6 +55,7 @@ public partial class MainWindow : Window
     private readonly System.Windows.Threading.DispatcherTimer _screenStatusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private ChromaBridgeListener? _chromaBridge;
     private MsiMysticLightDeviceProvider? _msiProvider;
+    private RedragonDeviceProvider? _redragonProvider;
     private readonly MsiBoardInfo? _msiBoard = MsiBoardDetector.Detect();
     private readonly RepairService _repair = new();
     private readonly UpdateChecker _updateChecker = new();
@@ -267,6 +269,7 @@ public partial class MainWindow : Window
             $"[{provider.ProviderId}] {(provider.IsConnected ? "verbunden" : "nicht verbunden")} ({elapsed.TotalMilliseconds:0} ms)",
             provider.IsConnected ? LogLevel.Info : LogLevel.Warning);
         _msiProvider = null;
+        _redragonProvider = null;
 
         if (_config.OpenRgb.Enabled)
             _registry.Register(new OpenRgbDeviceProvider(_config.OpenRgb.Host, _config.OpenRgb.Port));
@@ -300,6 +303,17 @@ public partial class MainWindow : Window
                 _msiProvider = new MsiMysticLightDeviceProvider { LedCountOverride = _config.MsiMysticLight.LedCountOverride };
                 _registry.Register(_msiProvider);
                 break;
+        }
+
+        if (_config.Redragon.Enabled)
+        {
+            _redragonProvider = new RedragonDeviceProvider
+            {
+                LedCountOverride = _config.Redragon.LedCountOverride,
+                VendorIdOverride = _config.Redragon.VendorIdOverride,
+                ProductIdOverride = _config.Redragon.ProductIdOverride
+            };
+            _registry.Register(_redragonProvider);
         }
 
         _ = _api?.StopAsync();
@@ -407,6 +421,10 @@ public partial class MainWindow : Window
         MsiLedCountBox.Text = _config.MsiMysticLight.LedCountOverride.ToString();
         UpdateMsiPanels();
 
+        RedragonEnabledCheck.IsChecked = _config.Redragon.Enabled;
+        RedragonVendorIdBox.Text = _config.Redragon.VendorIdOverride > 0 ? $"{_config.Redragon.VendorIdOverride:X4}" : "";
+        RedragonProductIdBox.Text = _config.Redragon.ProductIdOverride > 0 ? $"{_config.Redragon.ProductIdOverride:X4}" : "";
+
         HaEnabledCheck.IsChecked = _config.HomeAssistant.Enabled;
         HaUrlBox.Text = _config.HomeAssistant.BaseUrl;
         HaTokenBox.Password = _config.HomeAssistant.LongLivedToken;
@@ -469,6 +487,10 @@ public partial class MainWindow : Window
         _config.MsiMysticLight.SdkSendOnlyUsedLeds = MsiSdkUsedLedsCheck.IsChecked == true;
         _config.MsiMysticLight.ElevatedAutostartConsent = MsiElevatedAutostartCheck.IsChecked == true;
         _config.MsiMysticLight.LedCountOverride = int.TryParse(MsiLedCountBox.Text, out var ledCount) && ledCount > 0 ? ledCount : 1;
+
+        _config.Redragon.Enabled = RedragonEnabledCheck.IsChecked == true;
+        _config.Redragon.VendorIdOverride = int.TryParse(RedragonVendorIdBox.Text.Trim(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var redVid) ? redVid : 0;
+        _config.Redragon.ProductIdOverride = int.TryParse(RedragonProductIdBox.Text.Trim(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var redPid) ? redPid : 0;
 
         _config.HomeAssistant.Enabled = HaEnabledCheck.IsChecked == true;
         _config.HomeAssistant.BaseUrl = string.IsNullOrWhiteSpace(HaUrlBox.Text) ? _config.HomeAssistant.BaseUrl : HaUrlBox.Text.Trim();
@@ -1005,6 +1027,49 @@ public partial class MainWindow : Window
                 ? "MSI-HID-Test: Nutzer bestätigt sichtbare Reaktion — Grundprotokoll scheint zu passen."
                 : "MSI-HID-Test: keine sichtbare Reaktion — Byte-Layout in MsiMysticLightProtocol muss " +
                   "anhand einer USB-Capture der offiziellen MSI-Center-App nachjustiert werden.");
+        }
+    }
+
+    // ===================== Redragon-Maus-HID-Test =====================
+
+    private async void OnRedragonTestClick(object sender, RoutedEventArgs e)
+    {
+        var confirm = MessageBox.Show(this,
+            "Dieser Test sendet einmalig einen Report an den Redragon-USB-HID-Controller und setzt " +
+            "die Zone auf reines Magenta — das Protokoll ist für dieses Mausmodell nicht verifiziert, " +
+            "wirkt sich aber nur auf die RGB-Beleuchtung aus, nicht auf Tasten oder Makros.\n\n" +
+            "Jetzt testen?",
+            "AetherRGB — Redragon-HID-Test", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var provider = _redragonProvider ?? new RedragonDeviceProvider
+        {
+            VendorIdOverride = int.TryParse(RedragonVendorIdBox.Text.Trim(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var vid) ? vid : 0,
+            ProductIdOverride = int.TryParse(RedragonProductIdBox.Text.Trim(), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var pid) ? pid : 0
+        };
+        if (provider != _redragonProvider) provider.Log += (level, msg) => Log("[redragon] " + msg, level);
+
+        await provider.ConnectAsync();
+        if (!provider.IsConnected)
+        {
+            MessageBox.Show(this, "Kein passendes Redragon-USB-HID-Gerät gefunden. Details siehe Log unten.",
+                "AetherRGB — Redragon-HID-Test", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        bool sent = await provider.RunSafeColorTestAsync();
+        var result = MessageBox.Show(this,
+            sent
+                ? "Report wurde gesendet. Hat sich an der Maus (Logo/Scrollrad) etwas verändert?"
+                : "Senden ist fehlgeschlagen — siehe Log unten.",
+            "AetherRGB — Redragon-HID-Test: Ergebnis", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+        if (sent)
+        {
+            Log(result == MessageBoxResult.Yes
+                ? "Redragon-HID-Test: Nutzer bestätigt sichtbare Reaktion — Grundprotokoll scheint zu passen."
+                : "Redragon-HID-Test: keine sichtbare Reaktion — Byte-Layout in RedragonHidProtocol muss " +
+                  "anhand einer USB-Capture der offiziellen Redragon-Software (Fit genannt) nachjustiert werden.");
         }
     }
 

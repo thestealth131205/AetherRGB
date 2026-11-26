@@ -190,6 +190,24 @@
                             </StackPanel>
                         </Border>
 
+                        <!-- Redragon-Maus -->
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <CheckBox x:Name="RedragonEnabledCheck" Content="Redragon-Maus (eigenes HID-Protokoll, experimentell)" FontWeight="SemiBold" />
+                                <TextBlock Text="Für Redragon-Mäuse wie die M914, die OpenRGB nicht erkennt. Ohne offizielle Spezifikation nachgebaut — Byte-Layout ist NICHT für jedes Modell verifiziert. Vor echten Effekten immer zuerst den sicheren Test unten machen."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,2,0,10" />
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <TextBlock Text="Vendor-ID (hex, leer = 258A):" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="RedragonVendorIdBox" Width="70" Margin="0,0,16,0" />
+                                    <TextBlock Text="Produkt-ID (hex, leer = automatisch):" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <TextBox x:Name="RedragonProductIdBox" Width="70" />
+                                </StackPanel>
+                                <TextBlock Text="Steht an der Maus kein Zusatz-Interface mit eigener Produkt-ID zur Verfügung oder trifft die Auto-Erkennung das falsche HID-Interface, hier die passende ID eintragen — das Log beim Verbinden zeigt alle gefundenen Geräte unter der Vendor-ID."
+                                           Style="{StaticResource MutedText}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                                <Button x:Name="RedragonTestButton" Content="Redragon-HID-Test (Einzelfarbe, sicher)" HorizontalAlignment="Left" Click="OnRedragonTestClick" />
+                            </StackPanel>
+                        </Border>
+
                         <!-- WLED -->
                         <Border Style="{StaticResource Card}">
                             <StackPanel>

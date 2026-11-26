@@ -163,6 +163,26 @@ public sealed class MsiMysticLightConfig
 /// <summary>Wie ein Lüfter angesteuert wird. <see cref="SmartEfficient"/>/<see cref="SmartQuiet"/> sind das
 /// Ergebnis der Smart-Kalibrierung — technisch auch eine Kurve (<see cref="FanProfileConfig.Curve"/>), der
 /// Modus merkt sich nur, welches Profil zuletzt angelegt wurde.</summary>
+/// <summary>Redragon-Maus (z. B. M914) per eigenem, reverse-engineertem USB/HID-Protokoll — bewusst ohne
+/// OpenRGB als Zwischenschicht, weil die M914 dort nicht bestätigt unterstützt ist. Siehe
+/// <see cref="AetherRGB.Providers.Redragon.RedragonHidProtocol"/> für den Status (unverifiziert).</summary>
+public sealed class RedragonConfig
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>0 = Standard-Vendor-ID 0x258A (Redragon/Dragonrise) verwenden.</summary>
+    public int VendorIdOverride { get; set; }
+
+    /// <summary>0 = alle HID-Geräte unter der Vendor-ID durchprobieren statt einer festen Produkt-ID.
+    /// Hilfreich, falls mehrere Redragon-Geräte angeschlossen sind oder die Auto-Erkennung das falsche
+    /// Interface trifft — der Wert steht nach einem erfolgreichen Verbinden im Log.</summary>
+    public int ProductIdOverride { get; set; }
+
+    /// <summary>LED-Anzahl der gemeldeten Sammelzone (die M914 hat nach öffentlich sichtbaren Fotos ein
+    /// Logo und einen Scrollrad-Ring, ohne verifizierte Einzelansteuerung also eine Zone).</summary>
+    public int LedCountOverride { get; set; } = 1;
+}
+
 public enum CoolingFanMode
 {
     /// <summary>Feste Ansteuerung (<see cref="FanProfileConfig.ManualPercent"/>), unabhängig von der Temperatur.</summary>
@@ -240,6 +260,7 @@ public sealed class AppConfig
     public LocalApiConfig LocalApi { get; set; } = new();
     public RazerChromaConfig RazerChroma { get; set; } = new();
     public MsiMysticLightConfig MsiMysticLight { get; set; } = new();
+    public RedragonConfig Redragon { get; set; } = new();
     public ScreenSyncConfig ScreenSync { get; set; } = new();
     public SensorPanelConfig SensorPanel { get; set; } = new();
     public CoolingConfig Cooling { get; set; } = new();

@@ -73,6 +73,15 @@ auf eine Fläche legen, für ein sekundäres USB-Display wie das 5"-Panel von LC
     gleichmäßig bleibt. Belegt die LED-Anordnung nur einen Teil eines JRAINBOW-Headers, werden nur diese LEDs gesendet.
   - **Eigene Variante (direkt per USB/HID)**: ohne MSI Center und ohne DLL, experimentell
     (vorher MSI Center beenden und den sicheren Einzel-LED-Test machen).
+- **Redragon-Mäuse** (z. B. M914, experimentell, Einstellungen → Redragon-Maus): eigenes, nicht
+  offiziell dokumentiertes USB-HID-Protokoll, weil OpenRGB die M914 nicht bestätigt unterstützt — nach
+  dem Muster, das Community-Projekte (z. B. [dokutan/mouse_m908](https://github.com/dokutan/mouse_m908))
+  für ältere Redragon-Modelle reverse-engineert haben. **Die exakten Report-Bytes sind für die M914
+  nicht verifiziert** — vor jedem Effekt zuerst den sicheren Einzelfarben-Test machen (Button in den
+  Einstellungen). Reagiert keine LED, Vendor-/Produkt-ID im Log prüfen (eine Maus hat mehrere
+  HID-Interfaces, das Log zeigt alle unter der Vendor-ID 0x258A gefundenen) und bei Bedarf per
+  USB-Capture gegen die offizielle Redragon-Software abgleichen. Ohne verifizierte Pro-LED-Ansteuerung
+  bekommt die Maus wie eine Sammelzone die Mittelwertfarbe des Effekts.
 
 - **Eigene Effekte** (im Aufbau): `.aeffect`-Dateien in `%APPDATA%\AetherRGB\effects` erscheinen
   automatisch in der Effekt-Auswahl. Ein Effekt besteht aus Ebenen (gemalt, auch als Daumenkino, oder
@@ -238,6 +247,7 @@ AetherRGB.Providers.OpenRGB     Motherboard-ARGB via OpenRGB-SDK-Protokoll
 AetherRGB.Providers.Wled        WLED-Geräte via UDP-Echtzeit + JSON-API
 AetherRGB.Providers.HomeAssistant  Home-Assistant-Lichter als Ziel UND als Quelle
 AetherRGB.Providers.MsiMysticLight MSI-RGB via offiziellem Mystic Light SDK oder direkt per USB/HID
+AetherRGB.Providers.Redragon    Redragon-Mäuse (z. B. M914) via eigenes, unverifiziertes USB/HID-Protokoll
 AetherRGB.Api                   Lokale REST-API (nur 127.0.0.1) und Chroma-REST-Nachbau (localhost:54235)
 native/ChromaBridge             Ersatz-RzChromaSDK64.dll (C) → UDP an AetherRGB
 AetherRGB.App                   WPF-Hauptanwendung, Bildschirmaufnahme (DXGI/GDI, Vortice) und Bereichs-Editor,

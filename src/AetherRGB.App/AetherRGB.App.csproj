@@ -9,9 +9,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AetherRGB.App</RootNamespace>
     <AssemblyName>AetherRGB</AssemblyName>
-    <Version>0.3.17</Version>
-    <AssemblyVersion>0.3.16.0</AssemblyVersion>
-    <FileVersion>0.3.16.0</FileVersion>
+    <Version>0.3.18</Version>
+    <AssemblyVersion>0.3.18.0</AssemblyVersion>
+    <FileVersion>0.3.18.0</FileVersion>
     <Product>AetherRGB</Product>
     <!-- Bildschirmaufnahme: gemappte DXGI-Textur direkt als Span lesen statt 8 MB pro Bild zu kopieren. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -65,6 +65,7 @@
     <ProjectReference Include="..\AetherRGB.Providers.Wled\AetherRGB.Providers.Wled.csproj" />
     <ProjectReference Include="..\AetherRGB.Providers.HomeAssistant\AetherRGB.Providers.HomeAssistant.csproj" />
     <ProjectReference Include="..\AetherRGB.Providers.MsiMysticLight\AetherRGB.Providers.MsiMysticLight.csproj" />
+    <ProjectReference Include="..\AetherRGB.Providers.Redragon\AetherRGB.Providers.Redragon.csproj" />
     <ProjectReference Include="..\AetherRGB.Api\AetherRGB.Api.csproj" />
   </ItemGroup>
 
