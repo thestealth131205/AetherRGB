@@ -36,6 +36,8 @@ public partial class MainWindow
         EffectsPanel.ProfilesChanged += OnProfilesChanged;
         try { _hotkeys = new GlobalHotkeys(this); }
         catch (Exception ex) { Log("Globale Hotkeys nicht verfügbar: " + ExceptionText.Describe(ex), LogLevel.Warning); }
+        _gameProfileWatcher = new GameProfileWatcher(() => _screenProfiles, () => _profiles,
+            (profile, via) => EffectsPanel.ActivateProfile(profile, via), Log);
         OnProfilesChanged();
         Log($"Profile: {_profiles.Profiles.Count}, aktiv „{_profiles.Active?.Name}“ — " +
             string.Join(", ", _profiles.Profiles.Select(p => p.Hotkey is null ? p.Name : $"{p.Name} [{GlobalHotkeys.Format(p.Hotkey)}]")),

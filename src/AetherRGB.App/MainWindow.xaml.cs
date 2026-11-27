@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     private readonly ScreenProfileStore _screenProfiles = new();
     private ScreenCaptureService? _screenCapture;
     private ScreenRegionEditorWindow? _screenEditor;
+    private GameProfileWatcher? _gameProfileWatcher;
     private SensorPanelService? _sensorPanels;
     private CoolingService? _cooling;
     private readonly System.Windows.Threading.DispatcherTimer _screenStatusTimer = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -732,7 +733,7 @@ public partial class MainWindow : Window
             _screenEditor.Activate();
             return;
         }
-        _screenEditor = new ScreenRegionEditorWindow(_screenProfiles, _screenCapture, _config.ScreenSync, ScreenHub.Shared.CurrentProfile?.Id) { Owner = this };
+        _screenEditor = new ScreenRegionEditorWindow(_screenProfiles, _screenCapture, _config.ScreenSync, ScreenHub.Shared.CurrentProfile?.Id, _profiles) { Owner = this };
         _screenEditor.LogMessage += Log;
         _screenEditor.Closed += (_, _) => _screenEditor = null;
         _screenEditor.Show();
@@ -1344,6 +1345,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _hotkeys?.Dispose();
+        _gameProfileWatcher?.Dispose();
         // Beim Beenden den jetzigen Stand ins aktive Profil schreiben — sonst zeigt die Profilverwaltung bis zum
         // nächsten Wechsel den alten Stand an.
         if (_profiles is { RememberChanges: true, Active: { } activeProfile })

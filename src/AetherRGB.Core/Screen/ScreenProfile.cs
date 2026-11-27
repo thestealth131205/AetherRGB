@@ -198,6 +198,12 @@ public sealed class ScreenProfile
     /// <summary>Optional: Prozessname des Spiels ohne „.exe“. Läuft er im Vordergrund, wird dieses Profil automatisch benutzt.</summary>
     public string ProcessName { get; set; } = "";
 
+    /// <summary>Optional: ID eines Profils unter Effekte &amp; Layout, das automatisch aktiviert wird, sobald
+    /// <see cref="ProcessName"/> irgendwo läuft — nicht erst im Vordergrund, damit der Wechsel schon beim Start
+    /// des Spiels passiert. Leer = kein automatischer Wechsel. Beendet sich der Prozess wieder, kehrt AetherRGB
+    /// zum zuvor aktiven Profil zurück.</summary>
+    public string AutoLightingProfileId { get; set; } = "";
+
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public HudHiddenMode WhenHudHidden { get; set; } = HudHiddenMode.ScreenAverage;
 
@@ -243,6 +249,7 @@ public static class ScreenProfileSerializer
         profile.Id = string.IsNullOrWhiteSpace(profile.Id) ? Guid.NewGuid().ToString("N")[..12] : SafeId(profile.Id);
         profile.Name = string.IsNullOrWhiteSpace(profile.Name) ? "Profil" : profile.Name.Trim()[..Math.Min(80, profile.Name.Trim().Length)];
         profile.ProcessName = (profile.ProcessName ?? "").Trim();
+        profile.AutoLightingProfileId = (profile.AutoLightingProfileId ?? "").Trim();
         profile.TemplateId ??= "";
         if (profile.ProcessName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) profile.ProcessName = profile.ProcessName[..^4];
         profile.Regions ??= new();

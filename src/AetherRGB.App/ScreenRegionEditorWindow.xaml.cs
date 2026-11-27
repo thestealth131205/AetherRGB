@@ -12,6 +12,7 @@ using System.Windows.Threading;
 using AetherRGB.Core.Config;
 using AetherRGB.Core.Devices;
 using AetherRGB.Core.Diagnostics;
+using AetherRGB.Core.Layout;
 using AetherRGB.Core.Screen;
 using Forms = System.Windows.Forms;
 
@@ -25,6 +26,7 @@ public partial class ScreenRegionEditorWindow : Window
     private readonly ScreenProfileStore _store;
     private readonly ScreenCaptureService _capture;
     private readonly ScreenSyncConfig _config;
+    private readonly LightingProfileStore? _lightingProfiles;
     private readonly ScreenHub _hub = ScreenHub.Shared;
 
     public event Action<string, LogLevel>? LogMessage;
@@ -53,17 +55,21 @@ public partial class ScreenRegionEditorWindow : Window
 
     private const string AutoMonitorLabel = "Automatisch (Monitor des Spiels)";
 
-    public ScreenRegionEditorWindow(ScreenProfileStore store, ScreenCaptureService capture, ScreenSyncConfig config, string? profileId)
+    public ScreenRegionEditorWindow(ScreenProfileStore store, ScreenCaptureService capture, ScreenSyncConfig config, string? profileId, LightingProfileStore? lightingProfiles = null)
     {
         _store = store;
         _capture = capture;
         _config = config;
+        _lightingProfiles = lightingProfiles;
         InitializeComponent();
         CanvasPreview.Source = _preview;
 
         MonitorCombo.Items.Add(AutoMonitorLabel);
         foreach (var m in ScreenCaptureService.GetMonitors()) MonitorCombo.Items.Add(m);
         MonitorCombo.SelectedItem = MonitorCombo.Items.OfType<MonitorInfo>().FirstOrDefault(m => m.DeviceName == config.Monitor) ?? (object)AutoMonitorLabel;
+
+        if (_lightingProfiles is not null)
+            foreach (var p in _lightingProfiles.Profiles) AutoProfileCombo.Items.Add(p);
 
         _liveTimer.Tick += (_, _) => LiveTick();
         _previewTimer.Tick += (_, _) => RenderPreview();
@@ -100,6 +106,7 @@ public partial class ScreenRegionEditorWindow : Window
         ProfileNameBox.Text = _profile.Name;
         ProcessNameBox.Text = _profile.ProcessName;
         HudHiddenCombo.SelectedIndex = (int)_profile.WhenHudHidden;
+        AutoProfileCombo.SelectedItem = AutoProfileCombo.Items.OfType<LightingProfile>().FirstOrDefault(p => p.Id == _profile.AutoLightingProfileId);
         _suppress = false;
         BuildBaseColor();
         ResetTemplateButton.IsEnabled = ScreenProfileTemplates.Get(_profile.Id) is not null;
@@ -196,7 +203,13 @@ public partial class ScreenRegionEditorWindow : Window
         _profile.Name = ProfileNameBox.Text;
         _profile.ProcessName = ProcessNameBox.Text.Trim();
         if (HudHiddenCombo.SelectedIndex >= 0) _profile.WhenHudHidden = (HudHiddenMode)HudHiddenCombo.SelectedIndex;
+        _profile.AutoLightingProfileId = AutoProfileCombo.SelectedItem is LightingProfile autoProfile ? autoProfile.Id : "";
         MarkDirty();
+    }
+
+    private void OnClearAutoProfileClick(object sender, RoutedEventArgs e)
+    {
+        AutoProfileCombo.SelectedItem = null; // löst OnProfileFieldChanged über SelectionChanged aus
     }
 
     private void BuildBaseColor()

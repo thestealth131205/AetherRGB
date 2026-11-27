@@ -91,6 +91,11 @@
                         <TextBox x:Name="ProfileNameBox" Margin="0,2,0,8" TextChanged="OnProfileFieldChanged" />
                         <TextBlock Text="Spiel (Prozessname ohne .exe) — läuft es im Vordergrund, gilt dieses Profil automatisch" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
                         <TextBox x:Name="ProcessNameBox" Margin="0,2,0,8" TextChanged="OnProfileFieldChanged" ToolTip="z. B. FortniteClient-Win64-Shipping" />
+                        <TextBlock Text="Läuft dieser Prozess irgendwo (nicht erst im Vordergrund), dieses Profil unter Effekte &amp; Layout automatisch aktivieren" Style="{StaticResource MutedText}" TextWrapping="Wrap" />
+                        <DockPanel Margin="0,2,0,8">
+                            <Button DockPanel.Dock="Right" Content="✕" Width="26" Margin="4,0,0,0" Click="OnClearAutoProfileClick" ToolTip="Automatischen Wechsel entfernen" />
+                            <ComboBox x:Name="AutoProfileCombo" DisplayMemberPath="Name" SelectionChanged="OnProfileFieldChanged" ToolTip="Leer = kein automatischer Wechsel. Beim Beenden des Spiels kehrt AetherRGB zum vorherigen Profil zurück." />
+                        </DockPanel>
                         <TextBlock Text="Ohne sichtbares HUD (Menü, Lobby, Zuschauen)" Style="{StaticResource MutedText}" />
                         <ComboBox x:Name="HudHiddenCombo" Margin="0,2,0,8" SelectionChanged="OnProfileFieldChanged">
                             <ComboBoxItem Content="Mischfarbe des Monitors zeigen" />
